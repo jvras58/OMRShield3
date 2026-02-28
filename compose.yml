@@ -13,17 +13,17 @@ services:
       - redis
     command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 
-  # ── Worker FastStream (processamento em lote) ────────────────────────────────
-  worker:
-    build: .
-    image: omrshield
-    volumes:
-      - ./data:/data
-    environment:
-      - BROKER_URL=redis://redis:6379
-    depends_on:
-      - redis
-    command: faststream run src.worker.consumer:app
+  # ── Worker FastStream (processamento em lote) # Desabilitado por enquanto ────────────────────────────────
+  # worker:
+  #   build: .
+  #   image: omrshield
+  #   volumes:
+  #     - ./data:/data
+  #   environment:
+  #     - BROKER_URL=redis://redis:6379
+  #   depends_on:
+  #     - redis
+  #   command: faststream run src.worker.consumer:app
 
   # ── Broker Redis ─────────────────────────────────────────────────────────────
   redis:
