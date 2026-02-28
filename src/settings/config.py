@@ -75,7 +75,9 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8001
     API_TOKEN: str = ""  # Token obrigatório para autenticar requests. Defina no .env.
-
+    # Lista de origens permitidas pelo CORS. Use ["*"] para liberar tudo.
+    # No .env: CORS_ORIGINS=["https://meusite.com","https://outro.com"]
+    CORS_ORIGINS: list[str] = ["*"]
     # ── Propriedades derivadas ────────────────────────────────────────────────
 
     @property
