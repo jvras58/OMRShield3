@@ -140,10 +140,12 @@ Documentação interativa: http://localhost:8081/docs
 ```bash
 # Só JSON
 curl -X POST http://localhost:8081/cartao \
+  -H "X-Verify-Token: seu_token_aqui" \
   -F "file=@cartao_foto.jpg" -F "dia=1"
 
 # JSON + grid em base64
 curl -X POST http://localhost:8081/cartao \
+  -H "X-Verify-Token: seu_token_aqui" \
   -F "file=@cartao_foto.jpg" -F "dia=1" -F "incluir_grid=true"
 ```
 
@@ -185,6 +187,7 @@ Retorna JPEG do grid anotado. `job_id` vem da resposta do POST.
 
 ```bash
 curl -X POST http://localhost:8081/cartao/batch \
+  -H "X-Verify-Token: seu_token_aqui" \
   -F "files=@foto1.jpg" -F "files=@foto2.jpg" -F "dia=1"
 ```
 
