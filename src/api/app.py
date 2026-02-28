@@ -42,9 +42,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="OMR AutoDetect",
+    title="OMRShield API",
     description=(
-        "Leitura de cartões-resposta SIMUREKA por auto-detecção de bolhas.\n\n"
+        "Leitura de cartões-resposta por auto-detecção de bolhas.\n\n"
         "Funciona com foto de celular e scanner."
     ),
     version="1.0.0",
