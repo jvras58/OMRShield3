@@ -16,14 +16,13 @@ Escala horizontal:
 
 import logging
 
-from faststream import FastStream
-from faststream.redis import RedisBroker, RedisMessage
+from faststream.redis import RedisMessage
 
+from src.infrastructure.broker import broker
 from src.infrastructure.cache import GridCache, make_grid_cache
 from src.infrastructure.redis_client import get_redis
 from src.models.resultado import CartaoJob
 from src.services.cartao_service import ExtratorCartao
-from src.settings.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -32,11 +31,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s %(message)s",
     datefmt="%H:%M:%S",
 )
-
-# ── App FastStream ─────────────────────────────────────────────────────────────
-
-broker = RedisBroker(settings.REDIS_URL)
-app = FastStream(broker)
 
 _extrator = ExtratorCartao()
 
