@@ -24,31 +24,42 @@ Imagem → Warp (4 marcadores) → HoughCircles → KMeans X/Y → Fill → Thre
 
 ---
 
-## Instalação
+## Requisitos
+
+> **Docker é obrigatório.**
+> O projeto depende do [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) para leitura de CPF, que é instalado automaticamente na imagem Docker. Não é possível rodar o serviço diretamente com `uv run` / `python` sem ter o Tesseract instalado no sistema operacional.
+
+Dependências de sistema instaladas no container:
+- `tesseract-ocr` + `tesseract-ocr-por`
+- `libgl1`, `libglib2.0-0` (OpenCV)
+
+---
+
+## Instalação e execução
+
+**Suba os serviços com Docker Compose:**
 
 ```bash
-uv sync
+docker compose up --build
 ```
+
+A API ficará disponível em http://localhost:8081.
 
 ---
 
 ## API
 
-```bash
-uv run uvicorn src.api.app:app --reload --port 8001
-```
-
-Documentação interativa: http://localhost:8001/docs
+Documentação interativa: http://localhost:8081/docs
 
 ### `POST /cartao`
 
 ```bash
 # Só JSON
-curl -X POST http://localhost:8001/cartao \
+curl -X POST http://localhost:8081/cartao \
   -F "file=@cartao_foto.jpg" -F "dia=1"
 
 # JSON + grid em base64
-curl -X POST http://localhost:8001/cartao \
+curl -X POST http://localhost:8081/cartao \
   -F "file=@cartao_foto.jpg" -F "dia=1" -F "incluir_grid=true"
 ```
 
@@ -73,19 +84,21 @@ Resposta:
 Retorna JPEG do grid anotado. `job_id` vem da resposta do POST.
 
 ```bash
-curl http://localhost:8001/cartao/3f2a1b.../grid --output grid.jpg
+curl http://localhost:8081/cartao/3f2a1b.../grid --output grid.jpg
 ```
 
 ### `POST /cartao/batch`
 
 ```bash
-curl -X POST http://localhost:8001/cartao/batch \
+curl -X POST http://localhost:8081/cartao/batch \
   -F "files=@foto1.jpg" -F "files=@foto2.jpg" -F "dia=1"
 ```
 
 ---
 
 ## Smoke test
+
+> Requer a API rodando (`docker compose up`).
 
 ```bash
 uv run python scripts/smoke_test.py cartao_foto.jpg --salvar-grid
@@ -103,16 +116,6 @@ uv run python scripts/smoke_test.py cartao_foto.jpg --salvar-grid
 | `HOUGH_PARAM2` | 18 | Sensibilidade do Hough |
 
 ---
-
-## Diferenças em relação ao projeto principal
-
-| | `omr_main` | `omr_autodetect` |
-|---|---|---|
-| Template | Obrigatório | Não usa |
-| Foto celular | ✗ | ✓ |
-| Scanner | ✓ | ✓ |
-| Precisão típica | ~95% | ~85–95% |
-| Dependência extra | — | `scikit-learn` |
 
 
 ## Estrutura do projeto
