@@ -73,6 +73,7 @@ class Settings(BaseSettings):
 
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8001
+    API_TOKEN: str = ""  # Token obrigatório para autenticar requests. Defina no .env.
 
     # ── Validadores de tupla (suporte a variáveis de ambiente) ────────────────
 

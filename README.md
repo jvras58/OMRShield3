@@ -49,6 +49,51 @@ A API ficará disponível em http://localhost:8081.
 
 ---
 
+## Autenticação
+
+**Todas as rotas da API exigem autenticação** via header `X-Verify-Token`. Sem um token válido, qualquer requisição retorna `401 Unauthorized`.
+
+### Configurando o token
+
+1. **Gere um token seguro** (escolha um dos métodos):
+
+   ```bash
+   # Python (recomendado)
+   python -c "import secrets; print(secrets.token_hex(32))"
+
+   # OpenSSL
+   openssl rand -hex 32
+   ```
+
+2. **Adicione ao `.env`** na raiz do projeto:
+
+   ```env
+   API_TOKEN=cole_o_token_gerado_aqui
+   ```
+
+3. **Reinicie os serviços** para aplicar:
+
+   ```bash
+   docker compose up --build
+   ```
+
+### Usando o token nas requisições
+
+Passe o token no header `X-Verify-Token` em todas as chamadas:
+
+```bash
+# Exemplo com curl
+curl -X POST http://localhost:8081/cartao \
+  -H "X-Verify-Token: seu_token_aqui" \
+  -F "file=@cartao_foto.jpg" -F "dia=1"
+```
+
+No **Swagger** (`/docs`), clique em **Authorize** (cadeado) e informe o token antes de executar qualquer endpoint.
+
+> **Atenção:** Se `API_TOKEN` não estiver definido no `.env`, a API rejeita **todas** as requisições com `401`. Sempre configure o token antes de subir o serviço.
+
+---
+
 ## Concorrência e escalabilidade
 
 O sistema foi projetado para atender múltiplos usuários simultaneamente.

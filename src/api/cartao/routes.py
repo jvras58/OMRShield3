@@ -10,7 +10,7 @@ import logging
 from typing import Annotated
 import asyncio
 from functools import partial
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import Response
 from pydantic import conint
 
@@ -25,10 +25,10 @@ from src.api.cartao.schemas import (
     CartaoResponse,
     JobStatusResponse,
 )
-from src.api.deps import BrokerDep, CacheDep, ExtractorDep
+from src.api.deps import BrokerDep, CacheDep, ExtractorDep, verify_token
 
 log = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(verify_token)])
 
 
 @router.post("/cartao", response_model=CartaoResponse, summary="Processar cartão")
