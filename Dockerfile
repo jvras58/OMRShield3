@@ -1,17 +1,24 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Builder stage — usa a imagem oficial do uv para não depender de pip
+# Builder stage
 FROM ghcr.io/astral-sh/uv:latest AS uv
 FROM python:3.12-slim AS builder
 
 COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
+
+# 1. Instalar o build backend (hatchling)
 COPY pyproject.toml uv.lock* ./
+RUN uv pip install --system --no-cache hatchling
 
-RUN uv pip install --system --no-cache hatchling \
-    && uv pip install --system --no-cache .
+# 2. Copiar o código-fonte ANTES de instalar o pacote
+#    (hatchling precisa do src/ para construir o wheel)
+COPY src/ ./src/
 
-# ── Runtime stage
+# 3. Instalar o pacote + todas as dependências
+RUN uv pip install --system --no-cache --no-build-isolation .
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -28,13 +35,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app
-
-
-COPY src/            ./src/
+COPY src/ ./src/
 
 RUN chown -R appuser:appuser /app
 USER appuser
-
 
 VOLUME ["/data"]
 
