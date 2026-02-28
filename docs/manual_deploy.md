@@ -14,6 +14,41 @@ O projeto é composto por **três peças** que precisam rodar em conjunto:
 
 No Railway cada peça vira um **serviço separado** dentro do mesmo projeto.
 
+### Como API e Worker se comunicam
+
+O Worker **não tem endpoint HTTP próprio** — ele nunca recebe chamadas diretas. O único jeito de ativá-lo é via `POST /cartao/batch` da API. O Redis é o único canal entre os dois serviços:
+
+```
+cliente HTTP
+    │
+    │  POST /cartao/batch
+    ▼
+  API ── salva imagem ──────────► Redis  temp:{job_id}         (imagem bruta)
+  API ── publica mensagem ──────► Redis  Stream "omr.batch"    (job leve)
+  API ◄── retorna job_ids ────── imediatamente (não bloqueia)
+
+                    Worker (FastStream, em background)
+                        │
+                        ├─ consome Stream "omr.batch"
+                        ├─ carrega imagem de temp:{job_id}
+                        ├─ roda pipeline (warp → Hough → threshold → OCR)
+                        ├─ salva resultado em grid:{job_id}
+                        └─ deleta temp:{job_id} + ACK na mensagem
+
+    │  GET /cartao/{job_id}/status   (cliente faz polling)
+    ▼
+  API ── lê cache ──────────────► Redis  grid:{job_id}
+         └─ "pending"   Worker ainda não terminou
+         └─ "done"      resultado disponível
+         └─ "failed"    erro irrecuperável no Worker
+
+    │  GET /cartao/{job_id}/grid
+    ▼
+  API ── lê grid:{job_id} ──────► retorna JPEG anotado
+```
+
+Por isso **ambos os serviços precisam da mesma `REDIS_URL`** apontando para o Redis do Railway. Sem ela, o Worker não consegue consumir o stream e os jobs ficam presos em `pending` para sempre.
+
 ---
 
 ## Por que obrigatoriamente usar o Dockerfile?
@@ -119,9 +154,8 @@ faststream run src.worker.consumer:app
 ```
 
 4. Em **Variables**, adicione **as mesmas variáveis** da API — especialmente:
-   - `REDIS_URL` (mesma URL interna do Redis)
-   - `API_TOKEN`
-   - todas as outras que forem relevantes para o processamento
+   - `REDIS_URL` — **deve ser exatamente a mesma URL interna do Redis** usada na API; é por ela que o Worker consome o stream `omr.batch` e salva os resultados no cache
+   - as demais variáveis de processamento (thresholds, layout, OCR etc.) se quiser sobrescrever os padrões
 
 > O Worker também usa o Dockerfile, portanto o Tesseract estará disponível para ele também.
 
