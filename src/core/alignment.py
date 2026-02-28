@@ -17,6 +17,7 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+# TODO: ajustar esses parâmetros para serem relativos à imagem, não fixos em pixels e vindos de settings.py
 PAGE_WIDTH = 1000
 
 _MX = 0.10
@@ -28,6 +29,7 @@ DEBUG_DIR = Path("/tmp/omr_autodetect_debug")
 
 
 def _dbg(name: str, img: np.ndarray) -> None:
+    """Salva imagem para debug se OMR_DEBUG=1."""
     if not DEBUG:
         return
     DEBUG_DIR.mkdir(exist_ok=True)
@@ -35,6 +37,7 @@ def _dbg(name: str, img: np.ndarray) -> None:
 
 
 def _order_points(pts: np.ndarray) -> np.ndarray:
+    """Ordena os 4 pontos no formato: [TL, TR, BR, BL]."""
     rect = np.zeros((4, 2), dtype="float32")
     s = pts.sum(axis=1)
     diff = np.diff(pts, axis=1)
@@ -46,6 +49,7 @@ def _order_points(pts: np.ndarray) -> np.ndarray:
 
 
 def _calcular_page_height(rect: np.ndarray) -> int:
+    """Calcula a altura da página alinhada mantendo a proporção dos marcadores."""
     tl, tr, bl, br = rect[0], rect[1], rect[3], rect[2]
     card_w = float(max(np.linalg.norm(tr - tl), np.linalg.norm(br - bl)))
     card_h = float(max(np.linalg.norm(bl - tl), np.linalg.norm(br - tr)))
@@ -55,6 +59,7 @@ def _calcular_page_height(rect: np.ndarray) -> int:
 
 
 def _four_point_transform(image: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    """Aplica warp de perspectiva usando os 4 pontos dados."""
     rect = _order_points(pts)
     page_h = _calcular_page_height(rect)
     dst = np.array(
@@ -70,6 +75,7 @@ def _four_point_transform(image: np.ndarray, pts: np.ndarray) -> np.ndarray:
 def _encontrar_quadradinho(
     quad: np.ndarray, nome: str = ""
 ) -> tuple[int, int, int, int]:
+    """Detecta o melhor marcador quadrado dentro da região dada."""
     qh, qw = quad.shape[:2]
     area_quad = qh * qw
 
