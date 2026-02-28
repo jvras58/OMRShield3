@@ -262,7 +262,7 @@ Executam o pipeline **completo e real** — OpenCV, HoughCircles, KMeans, thresh
 
 #### Rodar
 
-Por padrão, procura por `data/cartao_foto.jpg` ou `data/cartao_digitalizado.jpg`:
+Por padrão, procura por `data/cartao_foto_tests.jpg` ou `data/cartao_digitalizado_tests.jpg`:
 
 ```bash
 uv run pytest tests/integration/ -v -s
