@@ -83,9 +83,19 @@ Resposta:
 
 Retorna JPEG do grid anotado. `job_id` vem da resposta do POST.
 
-```bash
-curl http://localhost:8081/cartao/3f2a1b.../grid --output grid.jpg
-```
+**Como visualizar o grid:**
+
+- **Navegador** — cole a URL diretamente na barra de endereços:
+  ```
+  http://localhost:8081/cartao/<job_id>/grid
+  ```
+- **Swagger** — use o endpoint `GET /cartao/{job_id}/grid` em `/docs` e clique em *Download file* após executar.
+- **curl** — salva o arquivo localmente:
+  ```bash
+  curl http://localhost:8081/cartao/3f2a1b.../grid --output grid.jpg
+  ```
+
+> **Questões em branco:** Se uma questão não estiver marcada no cartão, ela **não aparece** no campo `respostas` e é contabilizada como não detectada no aviso `"X/90 questoes detectadas"`. Isso é comportamento esperado — o sistema só retorna questões que possuem uma bolha preenchida.
 
 ### `POST /cartao/batch`
 
