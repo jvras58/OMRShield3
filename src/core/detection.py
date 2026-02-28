@@ -18,45 +18,24 @@ import logging
 
 import cv2
 import numpy as np
+from sklearn.cluster import KMeans
 
 from src.settings.config import settings
 
 log = logging.getLogger(__name__)
-
-# sklearn é opcional — se não tiver, usa clustering simples por mediana
-try:
-    from sklearn.cluster import KMeans as _KMeans
-
-    _HAS_SKLEARN = True
-except ImportError:
-    _HAS_SKLEARN = False
-    log.warning("[AutoDetect] sklearn não instalado — usando clustering simples.")
 
 
 # ── Clustering ────────────────────────────────────────────────────────────────
 
 
 def _kmeans_1d(values: list[float], k: int) -> list[float]:
-    """Retorna k centros ordenados. Usa sklearn se disponível, senão divisão uniforme."""
+    """Retorna k centros ordenados via KMeans 1-D."""
     if len(values) < k:
         return sorted(values)
 
-    if _HAS_SKLEARN:
-        arr = np.array(values).reshape(-1, 1)
-        km = _KMeans(n_clusters=k, n_init=10, random_state=0).fit(arr)
-        return sorted(float(c) for c in km.cluster_centers_.flatten())
-
-    # Fallback: dividir o range em k buckets e usar a mediana de cada
-    sorted_v = sorted(values)
-    bucket = max(1, len(sorted_v) // k)
-    centers = []
-    for i in range(k):
-        chunk = sorted_v[i * bucket : (i + 1) * bucket]
-        if chunk:
-            centers.append(float(np.median(chunk)))
-    while len(centers) < k:
-        centers.append(centers[-1] + 20 if centers else 50.0)
-    return sorted(centers[:k])
+    arr = np.array(values).reshape(-1, 1)
+    km = KMeans(n_clusters=k, n_init=10, random_state=0).fit(arr)
+    return sorted(float(c) for c in km.cluster_centers_.flatten())
 
 
 # ── 1. Separadores ────────────────────────────────────────────────────────────
@@ -165,7 +144,7 @@ def hough_bolhas(
 
 def calibrar_colunas(bolhas: list[tuple[int, int, int]]) -> list[float]:
     """
-    Retorna os N_ALTERNATIVAS centros X das colunas (A–E) ordenados.
+    Retorna os N_ALTERNATIVAS centros X das colunas ordenados.
     """
     if len(bolhas) < settings.N_ALTERNATIVAS:
         raise ValueError(f"Bolhas insuficientes para calibrar colunas: {len(bolhas)}")
