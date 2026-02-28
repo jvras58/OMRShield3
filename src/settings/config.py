@@ -27,13 +27,29 @@ class Settings(BaseSettings):
     N_ALTERNATIVAS: int = 5  # A B C D E
     ALTERNATIVAS: ClassVar[list[str]] = list("ABCDE")
 
-    # Fração vertical da imagem onde vivem as bolhas (ignora cabeçalho)
-    BOLHAS_Y_MIN_FRAC: float = 0.66  # pula cabeçalho "QUESTÃO/RESPOSTA"
+    # ── Warp / normalização de perspectiva ────────────────────────────────────
+    # Dimensões fixas da imagem após warp — todos os parâmetros de pixel
+    # abaixo são relativos a estas dimensões, tornando-os invariantes à
+    # distância/ângulo da câmera.
+
+    PAGE_WIDTH: int = 1000  # largura após warp (px)
+    PAGE_HEIGHT: int = 1400  # altura após warp (px) — proporção típica A4 cartão
+
+    # ── Detecção dinâmica do início da zona de bolhas ─────────────────────────
+
+    HEADER_SEARCH_Y_MIN_FRAC: float = 0.40  # busca começa a 40% da altura
+    HEADER_SEARCH_Y_MAX_FRAC: float = 0.80  # busca termina a 80% da altura
+
+    # Fallback: se a detecção dinâmica falhar, usa esta fração fixa.
+    BOLHAS_Y_MIN_FRAC_FALLBACK: float = 0.66
+
+    # Limite inferior da zona de bolhas (geralmente a borda da imagem).
     BOLHAS_Y_MAX_FRAC: float = 1.00
 
     # ── Detecção HoughCircles ─────────────────────────────────────────────────
+    # Calibrados para PAGE_WIDTH=1000, PAGE_HEIGHT=1400.
 
-    HOUGH_MIN_DIST: int = 14  # distância mínima entre centros (px, em 1000px)
+    HOUGH_MIN_DIST: int = 14  # distância mínima entre centros (px)
     HOUGH_PARAM1: int = 30  # limiar alto do Canny interno
     HOUGH_PARAM2: int = 18  # acumulador: menor = detecta mais
     HOUGH_MIN_RADIUS: int = 7  # raio mínimo de bolha (px)

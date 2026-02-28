@@ -4,6 +4,12 @@ core/visualizer.py — Geração da imagem de debug com grid auto-detectado sobr
 Dado cartão alinhado + respostas detectadas, produz imagem anotada
 (grid colorido + painel lateral de resumo).
 
+Mudanças em relação à versão original:
+  - _desenhar_grid() usa recortar_zona_bolhas() + encontrar_separadores()
+    com a nova assinatura (sem y_min/y_max).
+  - As coordenadas das bolhas são traduzidas de volta à imagem completa
+    via y_offset retornado por recortar_zona_bolhas().
+
 Exporta:
   render_resultado(img, respostas, dia, max_w) → np.ndarray  (BGR)
   render_para_bytes(img, respostas, dia, fmt, max_w) → bytes  (JPEG/PNG)
@@ -44,25 +50,31 @@ PAINEL_W = 340
 
 
 def _desenhar_grid(img: np.ndarray, respostas: dict, dia: int) -> np.ndarray:
-    """Sobrepõe o grid auto-detectado na imagem, colorindo cada bolha."""
-    out = img.copy()
-    gray = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
-    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-    h, w = out.shape[:2]
+    """Sobrepõe o grid auto-detectado na imagem completa, colorindo cada bolha."""
+    from src.core.alignment import recortar_zona_bolhas
 
-    y_min = int(h * settings.BOLHAS_Y_MIN_FRAC)
-    y_max = int(h * settings.BOLHAS_Y_MAX_FRAC)
-    seps = encontrar_separadores(gray, y_min, y_max)
+    out = img.copy()
+
+    # Recorta o cabeçalho para processar apenas a zona de bolhas
+    zona, y_offset = recortar_zona_bolhas(img)
+    gray_zona = cv2.cvtColor(zona, cv2.COLOR_BGR2GRAY)
+    gray_zona = cv2.normalize(gray_zona, None, 0, 255, cv2.NORM_MINMAX)
+
     q_offset = (dia - 1) * settings.QUESTOES_POR_DIA
+    seps = encontrar_separadores(gray_zona)
+
+    # Linha horizontal indicando onde começa a zona de bolhas
+    cv2.line(out, (0, y_offset), (out.shape[1], y_offset), (255, 100, 0), 2)
 
     for bloco_idx in range(settings.N_BLOCOS):
         x_min = seps[bloco_idx]
         x_max = seps[bloco_idx + 1]
         q_inicio = bloco_idx * settings.N_QUESTOES_POR_BLOCO + 1 + q_offset
 
-        cv2.line(out, (x_min, y_min), (x_min, y_max), COR_SEP, 1)
+        # Linha vertical separadora (coordenadas na imagem COMPLETA)
+        cv2.line(out, (x_min, y_offset), (x_min, out.shape[0]), COR_SEP, 1)
 
-        bolhas = hough_bolhas(gray, x_min, x_max, y_min, y_max)
+        bolhas = hough_bolhas(gray_zona, x_min, x_max)
         if len(bolhas) < settings.N_ALTERNATIVAS * 2:
             continue
 
@@ -74,12 +86,14 @@ def _desenhar_grid(img: np.ndarray, respostas: dict, dia: int) -> np.ndarray:
 
         r = settings.FILL_RADIUS
 
+        # Labels de alternativas (acima da zona de bolhas)
         for ai, letra in enumerate(settings.ALTERNATIVAS):
             x = int(round(col_centers[ai])) - 5
+            y_lbl = max(y_offset - 4, 10)
             cv2.putText(
                 out,
                 letra,
-                (x, max(y_min - 4, 10)),
+                (x, y_lbl),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.28,
                 COR_DESTAQUE,
@@ -87,7 +101,9 @@ def _desenhar_grid(img: np.ndarray, respostas: dict, dia: int) -> np.ndarray:
             )
 
         for qi in range(settings.N_QUESTOES_POR_BLOCO):
-            y = int(round(oy + qi * lg))
+            # Traduz coordenadas locais da zona para a imagem completa
+            y_local = int(round(oy + qi * lg))
+            y_full = y_local + y_offset
             questao = q_inicio + qi
             resp = respostas.get(questao)
 
@@ -107,8 +123,8 @@ def _desenhar_grid(img: np.ndarray, respostas: dict, dia: int) -> np.ndarray:
                 m = 2
                 cv2.rectangle(
                     out,
-                    (x - r + m, y - r + m),
-                    (x + r - m, y + r - m),
+                    (x - r + m, y_full - r + m),
+                    (x + r - m, y_full + r - m),
                     cor,
                     -1 if fill else 1,
                 )
@@ -116,7 +132,7 @@ def _desenhar_grid(img: np.ndarray, respostas: dict, dia: int) -> np.ndarray:
             cv2.putText(
                 out,
                 f"Q{questao}",
-                (max(x_min - 28, 0), y + r // 2 + 4),
+                (max(x_min - 28, 0), y_full + r // 2 + 4),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.28,
                 COR_DESTAQUE,

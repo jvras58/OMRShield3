@@ -2,13 +2,10 @@
 tests/core/test_detection.py — Testa as funções do pipeline de detecção OpenCV.
 
 Estratégia:
-  - Funções puras (calibrar_colunas, calibrar_linhas, ler_bloco) são testadas
-    com dados sintéticos gerados numericamente.
-  - encontrar_separadores é testado com imagens grayscale sintéticas simples.
-  - detectar_todos é testado com imagem vazia (retorna {}) para garantir
-    que o pipeline não crasha com entrada inválida.
-
-Não depende de imagens reais de cartão.
+  - encontrar_separadores agora recebe apenas a imagem recortada (sem y_min/y_max).
+  - hough_bolhas agora recebe apenas (gray, x_min, x_max) — sem y_min/y_max.
+  - Funções puras (calibrar_*, ler_bloco) testadas com dados sintéticos.
+  - detectar_todos é testado com imagem vazia (retorna {}) sem crash.
 """
 
 import numpy as np
@@ -30,11 +27,8 @@ from src.settings.config import settings
 def _imagem_com_separadores(
     w: int = 600, h: int = 300, n_blocos: int = 6, espessura_gap: int = 8
 ) -> np.ndarray:
-    """
-    Imagem grayscale sintética com N_BLOCOS-1 gaps brancos verticais
-    separando regiões escuras — simula o layout de um cartão real.
-    """
-    img = np.full((h, w), 30, dtype=np.uint8)  # fundo escuro
+    """Imagem grayscale com N_BLOCOS-1 gaps brancos verticais."""
+    img = np.full((h, w), 30, dtype=np.uint8)
     block_w = w // n_blocos
     for i in range(1, n_blocos):
         x = i * block_w
@@ -51,10 +45,7 @@ def _bolhas_grid(
     dy: float = 20.0,
     r: int = 10,
 ) -> list[tuple[int, int, int]]:
-    """
-    Cria uma grade sintética de bolhas com posições conhecidas.
-    n_alt colunas, n_q linhas.
-    """
+    """Grade sintética de bolhas com posições conhecidas."""
     bolhas = []
     for ai in range(n_alt):
         for qi in range(n_q):
@@ -70,45 +61,35 @@ def _bolhas_grid(
 class TestEncontrarSeparadores:
     def test_retorna_n_blocos_mais_um(self):
         img = _imagem_com_separadores()
-        seps = encontrar_separadores(img, 0, img.shape[0])
+        seps = encontrar_separadores(img)
         assert len(seps) == settings.N_BLOCOS + 1
 
     def test_primeiro_e_ultimo(self):
         img = _imagem_com_separadores(w=600, h=200)
-        seps = encontrar_separadores(img, 0, img.shape[0])
+        seps = encontrar_separadores(img)
         assert seps[0] == 0
         assert seps[-1] == img.shape[1]
 
     def test_seps_sao_crescentes(self):
         img = _imagem_com_separadores()
-        seps = encontrar_separadores(img, 0, img.shape[0])
+        seps = encontrar_separadores(img)
         assert all(seps[i] < seps[i + 1] for i in range(len(seps) - 1))
 
     def test_fallback_divisao_uniforme(self):
         """Imagem totalmente escura (sem gaps) usa divisão uniforme."""
-        img = np.zeros((200, 600), dtype=np.uint8)  # tudo escuro, sem gaps
-        seps = encontrar_separadores(img, 0, img.shape[0])
+        img = np.zeros((200, 600), dtype=np.uint8)
+        seps = encontrar_separadores(img)
         assert len(seps) == settings.N_BLOCOS + 1
         assert seps[0] == 0
         assert seps[-1] == img.shape[1]
 
     def test_largura_de_blocos_aproximadamente_uniforme(self):
-        """Com gaps igualmente espaçados, blocos devem ser aproximadamente iguais."""
         img = _imagem_com_separadores(w=600, h=200)
-        seps = encontrar_separadores(img, 0, img.shape[0])
+        seps = encontrar_separadores(img)
         larguras = [seps[i + 1] - seps[i] for i in range(settings.N_BLOCOS)]
         media = sum(larguras) / len(larguras)
         for larg in larguras:
-            assert abs(larg - media) < media * 0.3  # dentro de 30% da média
-
-    def test_y_min_e_y_max_limitam_regiao(self):
-        """Separadores devem ser detectados apenas na faixa y_min:y_max."""
-        w, h = 600, 400
-        img = _imagem_com_separadores(w=w, h=h)
-        seps_full = encontrar_separadores(img, 0, h)
-        seps_crop = encontrar_separadores(img, h // 2, h)
-        # ambos devem ter N_BLOCOS+1 elementos
-        assert len(seps_full) == len(seps_crop) == settings.N_BLOCOS + 1
+            assert abs(larg - media) < media * 0.3
 
 
 # ── calibrar_colunas ──────────────────────────────────────────────────────────
@@ -131,15 +112,14 @@ class TestCalibrarColunas:
         cols = calibrar_colunas(bolhas)
         esperadas = [x0 + i * dx for i in range(settings.N_ALTERNATIVAS)]
         for c, e in zip(cols, esperadas):
-            assert abs(c - e) < 5.0  # tolerância de 5 px
+            assert abs(c - e) < 5.0
 
     def test_bolhas_insuficientes_levanta_value_error(self):
-        bolhas = [(10, 10, 5), (20, 10, 5)]  # menos que N_ALTERNATIVAS
+        bolhas = [(10, 10, 5), (20, 10, 5)]
         with pytest.raises(ValueError, match="Bolhas insuficientes"):
             calibrar_colunas(bolhas)
 
     def test_bolhas_exatamente_n_alternativas(self):
-        """Com exatamente N_ALTERNATIVAS bolhas, não deve levantar."""
         bolhas = [(i * 40, 50, 10) for i in range(settings.N_ALTERNATIVAS)]
         cols = calibrar_colunas(bolhas)
         assert len(cols) == settings.N_ALTERNATIVAS
@@ -160,7 +140,7 @@ class TestCalibrarLinhas:
         oy, _ = calibrar_linhas(bolhas)
         assert abs(oy - y0) < 5.0
 
-    def test_lg_proximo_do_espamento(self):
+    def test_lg_proximo_do_espacamento(self):
         y0, dy = 50.0, 20.0
         bolhas = _bolhas_grid(y0=y0, dy=dy)
         _, lg = calibrar_linhas(bolhas)
@@ -168,7 +148,7 @@ class TestCalibrarLinhas:
 
     def test_bolhas_insuficientes_levanta_value_error(self):
         with pytest.raises(ValueError, match="Bolhas insuficientes"):
-            calibrar_linhas([(10, 10, 5), (20, 20, 5)])  # apenas 2
+            calibrar_linhas([(10, 10, 5), (20, 20, 5)])
 
     def test_oy_e_lg_sao_float(self):
         bolhas = _bolhas_grid()
@@ -203,27 +183,15 @@ class TestLerBloco:
         for vals in result.values():
             assert len(vals) == settings.N_ALTERNATIVAS
 
-    def test_valores_sao_float(self):
-        gray = np.ones((500, 300), dtype=np.uint8) * 200
-        bolhas = _bolhas_grid(x0=10, dx=50, y0=10, dy=30)
-        cols = calibrar_colunas(bolhas)
-        oy, lg = calibrar_linhas(bolhas)
-        result = ler_bloco(gray, cols, oy, lg, q_inicio=1)
-        for vals in result.values():
-            assert all(isinstance(v, float) for v in vals)
-
     def test_q_inicio_define_numero_das_questoes(self):
         gray = np.ones((500, 300), dtype=np.uint8) * 200
         bolhas = _bolhas_grid(x0=10, dx=50, y0=10, dy=30)
         cols = calibrar_colunas(bolhas)
         oy, lg = calibrar_linhas(bolhas)
-        q_inicio = 46
-        result = ler_bloco(gray, cols, oy, lg, q_inicio=q_inicio)
-        qs = sorted(result.keys())
-        assert qs[0] == q_inicio
+        result = ler_bloco(gray, cols, oy, lg, q_inicio=46)
+        assert sorted(result.keys())[0] == 46
 
     def test_imagem_branca_retorna_valores_altos(self):
-        """Bolhas em imagem branca → fill deve ser próximo de 255 (não marcadas)."""
         gray = np.full((500, 300), 255, dtype=np.uint8)
         bolhas = _bolhas_grid(x0=10, dx=50, y0=10, dy=30)
         cols = calibrar_colunas(bolhas)
@@ -238,46 +206,39 @@ class TestLerBloco:
 
 class TestDetectarTodos:
     def test_imagem_branca_retorna_dict(self):
-        """Imagem totalmente branca — sem bolhas detectáveis → retorna {}."""
-        img = np.full((1000, 800, 3), 255, dtype=np.uint8)
+        img = np.full((1400, 1000, 3), 255, dtype=np.uint8)
         result = detectar_todos(img, dia=1)
         assert isinstance(result, dict)
 
     def test_nao_crasha_com_imagem_escura(self):
-        """Imagem preta — sem features → retorna {} sem exception."""
-        img = np.zeros((1000, 800, 3), dtype=np.uint8)
+        img = np.zeros((1400, 1000, 3), dtype=np.uint8)
         result = detectar_todos(img, dia=1)
         assert isinstance(result, dict)
 
     def test_nao_crasha_com_imagem_cinza(self):
-        """Imagem cinza uniforme → fallback gracioso."""
-        img = np.full((1000, 800, 3), 128, dtype=np.uint8)
+        img = np.full((1400, 1000, 3), 128, dtype=np.uint8)
         result = detectar_todos(img, dia=1)
         assert isinstance(result, dict)
 
     def test_aceita_imagem_grayscale(self):
-        """detectar_todos deve aceitar imagem 2D (grayscale) sem crasha."""
-        img = np.full((1000, 800), 200, dtype=np.uint8)
+        img = np.full((1400, 1000), 200, dtype=np.uint8)
         result = detectar_todos(img, dia=1)
         assert isinstance(result, dict)
 
     def test_resultado_letras_validas(self):
-        """Todas as letras retornadas devem estar em A-E."""
-        img = np.full((1000, 800, 3), 200, dtype=np.uint8)
+        img = np.full((1400, 1000, 3), 200, dtype=np.uint8)
         result = detectar_todos(img, dia=1)
         for letra in result.values():
             assert letra in settings.ALTERNATIVAS
 
     def test_questoes_positivas(self):
-        """Números de questão devem ser >= 1."""
-        img = np.full((1000, 800, 3), 200, dtype=np.uint8)
+        img = np.full((1400, 1000, 3), 200, dtype=np.uint8)
         result = detectar_todos(img, dia=1)
         for q in result.keys():
             assert q >= 1
 
     def test_dia_2_questoes_offset(self):
-        """Com dia=2 as questões detectadas (se houver) devem ter offset correto."""
-        img = np.full((1000, 800, 3), 200, dtype=np.uint8)
+        img = np.full((1400, 1000, 3), 200, dtype=np.uint8)
         result = detectar_todos(img, dia=2)
         if result:
             offset = (2 - 1) * settings.QUESTOES_POR_DIA

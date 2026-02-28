@@ -7,7 +7,13 @@ Pipeline:
   3. calibrar_colunas()       → KMeans em X → posições das N_ALTERNATIVAS colunas
   4. calibrar_linhas()        → KMeans em Y → oy + labelsGap
   5. ler_bloco()              → mede fill em grid completo → {qi: [v0..v4]}
-  6. detectar_todos()         → orquestra blocos e aplica threshold
+  6. detectar_todos()         → recorta cabeçalho, orquestra blocos, aplica threshold
+
+Mudanças em relação à versão original:
+  - detectar_todos() chama recortar_zona_bolhas() para trabalhar apenas na faixa
+    de questões, eliminando BOLHAS_Y_MIN_FRAC como fração fixa no Hough.
+  - encontrar_separadores() e hough_bolhas() agora recebem a imagem já recortada
+    (coordenadas locais), sem necessidade de y_min/y_max absolutos.
 
 Exporta:
   encontrar_separadores, hough_bolhas, calibrar_colunas, calibrar_linhas,
@@ -41,16 +47,16 @@ def _kmeans_1d(values: list[float], k: int) -> list[float]:
 # ── 1. Separadores ────────────────────────────────────────────────────────────
 
 
-def encontrar_separadores(gray: np.ndarray, y_min: int, y_max: int) -> list[int]:
+def encontrar_separadores(gray: np.ndarray) -> list[int]:
     """
     Detecta as posições X dos gaps brancos verticais que separam os blocos.
 
+    Recebe imagem grayscale já recortada (apenas zona de bolhas).
     Retorna lista de N_BLOCOS+1 valores: [x_inicio_b1, ..., x_fim_bN].
     """
     h, w = gray.shape
-    strip = gray[y_min:y_max, :]
 
-    dark_per_col = (strip < settings.SEP_PIXEL_THR).sum(axis=0)
+    dark_per_col = (gray < settings.SEP_PIXEL_THR).sum(axis=0)
 
     in_gap = False
     gap_start = 0
@@ -102,14 +108,18 @@ def hough_bolhas(
     gray: np.ndarray,
     x_min: int,
     x_max: int,
-    y_min: int,
-    y_max: int,
 ) -> list[tuple[int, int, int]]:
     """
-    Detecta círculos (bolhas) numa região retangular da imagem.
-    Retorna lista de (cx, cy, r) em coordenadas absolutas da imagem.
+    Detecta círculos (bolhas) numa faixa vertical da imagem já recortada.
+
+    Parâmetros:
+        gray  — grayscale da zona de bolhas (sem cabeçalho)
+        x_min — coluna inicial do bloco
+        x_max — coluna final do bloco
+
+    Retorna lista de (cx, cy, r) em coordenadas da imagem recortada.
     """
-    strip = gray[y_min:y_max, x_min:x_max]
+    strip = gray[:, x_min:x_max]
     blurred = cv2.GaussianBlur(
         strip,
         settings.HOUGH_BLUR_KERNEL,
@@ -128,12 +138,12 @@ def hough_bolhas(
     )
 
     if circles is None:
-        log.warning(f"[Hough] Nenhum círculo em [{x_min}:{x_max}, {y_min}:{y_max}]")
+        log.warning(f"[Hough] Nenhum círculo em bloco x=[{x_min}:{x_max}]")
         return []
 
     result = []
     for cx, cy, r in np.round(circles[0]).astype(int):
-        result.append((int(cx) + x_min, int(cy) + y_min, int(r)))
+        result.append((int(cx) + x_min, int(cy), int(r)))
 
     log.debug(f"[Hough] bloco [{x_min}:{x_max}]: {len(result)} bolhas")
     return result
@@ -143,9 +153,7 @@ def hough_bolhas(
 
 
 def calibrar_colunas(bolhas: list[tuple[int, int, int]]) -> list[float]:
-    """
-    Retorna os N_ALTERNATIVAS centros X das colunas ordenados.
-    """
+    """Retorna os N_ALTERNATIVAS centros X das colunas ordenados."""
     if len(bolhas) < settings.N_ALTERNATIVAS:
         raise ValueError(f"Bolhas insuficientes para calibrar colunas: {len(bolhas)}")
 
@@ -260,20 +268,26 @@ def detectar_todos(img: np.ndarray, dia: int = 1) -> dict[int, str]:
     Detecta todas as respostas do cartão automaticamente, sem template.
 
     Parâmetros:
-        img — imagem alinhada (saída de core.alignment.alinhar)
-        dia — dia da prova (1, 2, ...); aplica offset de questões
+        img — imagem alinhada (saída de core.alignment.alinhar),
+              dimensões PAGE_WIDTH × PAGE_HEIGHT.
+        dia — dia da prova (1, 2, ...); aplica offset de questões.
+
+    O cabeçalho é removido dinamicamente antes do processamento.
 
     Retorna {numero_questao: letra} para as questões detectadas.
     """
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img.copy()
-    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-    h, w = gray.shape
+    from src.core.alignment import recortar_zona_bolhas
 
-    y_min = int(h * settings.BOLHAS_Y_MIN_FRAC)
-    y_max = int(h * settings.BOLHAS_Y_MAX_FRAC)
+    # ── Recorta o cabeçalho ────────────────────────────────────────────────
+    zona, _y_offset = recortar_zona_bolhas(img)
+
+    gray = cv2.cvtColor(zona, cv2.COLOR_BGR2GRAY) if zona.ndim == 3 else zona.copy()
+    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+
     q_offset = (dia - 1) * settings.QUESTOES_POR_DIA
 
-    seps = encontrar_separadores(gray, y_min, y_max)
+    # ── Detecta separadores na zona já recortada ───────────────────────────
+    seps = encontrar_separadores(gray)
 
     todos_fills: dict[int, list[float]] = {}
 
@@ -282,7 +296,7 @@ def detectar_todos(img: np.ndarray, dia: int = 1) -> dict[int, str]:
         x_max = seps[bloco_idx + 1]
         q_inicio = bloco_idx * settings.N_QUESTOES_POR_BLOCO + 1 + q_offset
 
-        bolhas = hough_bolhas(gray, x_min, x_max, y_min, y_max)
+        bolhas = hough_bolhas(gray, x_min, x_max)
 
         if len(bolhas) < settings.N_ALTERNATIVAS * 2:
             log.warning(
