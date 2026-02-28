@@ -1,0 +1,32 @@
+services:
+  # ── API FastAPI (processamento individual) ───────────────────────────────────
+  api:
+    build: .
+    image: omrshield
+    ports:
+      - "8081:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - BROKER_URL=redis://redis:6379
+    depends_on:
+      - redis
+    command: uvicorn src.app:app --host 0.0.0.0 --port 8000
+
+  # ── Worker FastStream (processamento em lote) ────────────────────────────────
+  worker:
+    build: .
+    image: omrshield
+    volumes:
+      - ./data:/data
+    environment:
+      - BROKER_URL=redis://redis:6379
+    depends_on:
+      - redis
+    command: faststream run src.worker.tasks:app
+
+  # ── Broker Redis ─────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

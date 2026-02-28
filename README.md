@@ -1,0 +1,115 @@
+# OMR AutoDetect
+
+Leitura de cartões-resposta SIMUREKA por **auto-detecção de bolhas** — sem `omr_template.json`.
+
+Funciona com foto de celular e scanner, sem calibração prévia.
+
+---
+
+## Como funciona
+
+```
+Imagem → Warp (4 marcadores) → HoughCircles → KMeans X/Y → Fill → Threshold → Resposta
+```
+
+| Etapa | O que faz |
+|---|---|
+| **Loader** | Detecta 4 marcadores nos cantos, aplica warp de perspectiva |
+| **Separadores** | Projeção vertical detecta os gaps brancos entre os 6 blocos |
+| **HoughCircles** | Detecta bordas circulares em cada bloco (~80% das bolhas) |
+| **KMeans em X** | Agrupa em 5 clusters → posições das colunas A–E |
+| **KMeans em Y** | Estima `oy` (origem) e `labelsGap` (espaçamento entre questões) |
+| **Grid completo** | Mede fill em todas as 15×5 posições |
+| **Threshold** | Global (jump no histograma) + local por questão |
+
+---
+
+## Instalação
+
+```bash
+uv sync
+```
+
+---
+
+## API
+
+```bash
+uv run uvicorn src.app:app --reload --port 8001
+```
+
+Documentação interativa: http://localhost:8001/docs
+
+### `POST /cartao`
+
+```bash
+# Só JSON
+curl -X POST http://localhost:8001/cartao \
+  -F "file=@cartao_foto.jpg" -F "dia=1"
+
+# JSON + grid em base64
+curl -X POST http://localhost:8001/cartao \
+  -F "file=@cartao_foto.jpg" -F "dia=1" -F "incluir_grid=true"
+```
+
+Resposta:
+```json
+{
+  "job_id": "3f2a1b...",
+  "status": "ok",
+  "cpf": "964.516.063-40",
+  "tentativas_cpf": 2,
+  "total_questoes_detectadas": 90,
+  "questoes_esperadas": 90,
+  "respostas": {"1": "C", "2": "B", "3": "C", "...": "..."},
+  "avisos": [],
+  "grid_image_b64": "/9j/4AAQ...",
+  "grid_url": "/cartao/3f2a1b.../grid"
+}
+```
+
+### `GET /cartao/{job_id}/grid`
+
+Retorna JPEG do grid anotado. `job_id` vem da resposta do POST.
+
+```bash
+curl http://localhost:8001/cartao/3f2a1b.../grid --output grid.jpg
+```
+
+### `POST /cartao/batch`
+
+```bash
+curl -X POST http://localhost:8001/cartao/batch \
+  -F "files=@foto1.jpg" -F "files=@foto2.jpg" -F "dia=1"
+```
+
+---
+
+## Smoke test
+
+```bash
+uv run python scripts/smoke_test.py cartao_foto.jpg --salvar-grid
+```
+
+---
+
+## Parâmetros (`src/config.py`)
+
+| Parâmetro | Valor | Descrição |
+|---|---|---|
+| `N_BLOCOS` | 6 | Colunas de questões |
+| `N_QUESTOES_POR_BLOCO` | 15 | Questões por coluna |
+| `BOLHAS_Y_MIN_FRAC` | 0.66 | Início da área de bolhas (pula cabeçalho) |
+| `HOUGH_PARAM2` | 18 | Sensibilidade do Hough |
+
+---
+
+## Diferenças em relação ao projeto principal
+
+| | `omr_main` | `omr_autodetect` |
+|---|---|---|
+| Template | Obrigatório | Não usa |
+| Foto celular | ✗ | ✓ |
+| Scanner | ✓ | ✓ |
+| Precisão típica | ~95% | ~85–95% |
+| Dependência extra | — | `scikit-learn` |

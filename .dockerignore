@@ -1,0 +1,36 @@
+# Controle de versão
+.git
+.gitignore
+
+# Ambiente virtual Python
+.venv
+venv
+
+# Caches
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Distribuição / build
+*.egg-info
+dist/
+build/
+
+# Dados e saídas locais
+data/
+
+# Variáveis de ambiente — nunca devem entrar na imagem
+.env
+.env.*
+
+# Documentação e metadados
+README.MD
+*.md
+
+# Ferramentas de desenvolvimento
+.vscode
+.idea
