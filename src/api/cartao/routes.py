@@ -117,8 +117,3 @@ async def grid_imagem(job_id: str, cache: CacheDep):
     """
     jpeg = obter_grid_jpeg(job_id, cache=cache)
     return Response(content=jpeg, media_type="image/jpeg")
-
-
-@router.get("/health", summary="Health check")
-async def health():
-    return {"status": "ok"}
