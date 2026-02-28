@@ -16,3 +16,6 @@ wheels/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# data
+data/*.jpg
