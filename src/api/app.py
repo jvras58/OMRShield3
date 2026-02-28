@@ -9,7 +9,7 @@ import logging
 
 from fastapi import FastAPI
 
-from src.api.routes import router
+from src.api.cartao.routes import router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,7 +21,7 @@ app = FastAPI(
     title="OMR AutoDetect",
     description=(
         "Leitura de cartões-resposta SIMUREKA por auto-detecção de bolhas.\n\n"
-        "Funciona com foto de celular e scanner — sem necessidade de template."
+        "Funciona com foto de celular e scanner"
     ),
     version="1.0.0",
 )
