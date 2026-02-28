@@ -18,7 +18,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["httpx", "pytest", "fakeredis"]
+dev = ["httpx", "pytest", "fakeredis", "pytest-cov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/worker/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
 
 [tool.uv]
 # Para rodar: uv run python scripts/smoke_test.py data/cartao.jpg
