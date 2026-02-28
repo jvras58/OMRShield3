@@ -8,7 +8,8 @@ Dependências (extrator, cache, broker) são injetadas via Depends().
 
 import logging
 from typing import Annotated
-
+import asyncio
+from functools import partial
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import Response
 from pydantic import conint
@@ -50,8 +51,17 @@ async def processar_cartao(
     Para múltiplos cartões sem bloquear a API, use `POST /cartao/batch`.
     """
     data = await file.read()
-    return processar_upload(
-        data, dia=dia, incluir_grid=incluir_grid, extrator=extrator, cache=cache
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        partial(
+            processar_upload,
+            data,
+            dia=dia,
+            incluir_grid=incluir_grid,
+            extrator=extrator,
+            cache=cache,
+        ),
     )
 
 
