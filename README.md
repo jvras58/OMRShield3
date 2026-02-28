@@ -35,7 +35,7 @@ uv sync
 ## API
 
 ```bash
-uv run uvicorn src.app:app --reload --port 8001
+uv run uvicorn src.api.app:app --reload --port 8001
 ```
 
 Documentação interativa: http://localhost:8001/docs
@@ -113,3 +113,30 @@ uv run python scripts/smoke_test.py cartao_foto.jpg --salvar-grid
 | Scanner | ✓ | ✓ |
 | Precisão típica | ~95% | ~85–95% |
 | Dependência extra | — | `scikit-learn` |
+
+
+## Estrutura do projeto
+
+```
+src/
+├── core/
+│   ├── alignment.py       ← warp de perspectiva (antes: loader.py)
+│   ├── detection.py       ← HoughCircles + KMeans + threshold (antes: auto_detect.py)
+│   ├── ocr.py             ← extração de CPF (antes: ocr.py)
+│   └── visualizer.py      ← grid anotado (antes: visualizer.py)
+├── infrastructure/
+│   ├── cache.py           ← GridCache em memória (antes: embutido em app.py)
+│   └── image_io.py        ← carregar_imagem / carregar_imagem_bytes (antes: loader.py)
+├── models/
+│   └── resultado.py       ← Resultado, Status (antes: extractor.py)
+├── settings/
+│   └── config.py          ← Pydantic Settings + .env (antes: constantes soltas)
+├── services/
+│   └── cartao_service.py  ← ExtratorCartao (antes: extractor.py)
+├── api/
+│   ├── app.py             ← criação do FastAPI
+│   ├── routes.py          ← todos os handlers
+│   └── schemas.py         ← Pydantic response models
+└── worker/
+    └── consumer.py        ← placeholder FastStream
+```

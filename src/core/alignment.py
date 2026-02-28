@@ -1,8 +1,11 @@
 """
-loader.py — Carregamento e alinhamento de imagens.
+core/alignment.py — Lógica pura de alinhamento de perspectiva (OpenCV).
 
-Detecta os 4 marcadores quadrados nos cantos e aplica warp de perspectiva.
-Idêntico ao projeto principal — não depende de template.
+Responsabilidade: detectar os 4 marcadores quadrados nos cantos e aplicar
+warp de perspectiva para produzir uma imagem frontal normalizada.
+
+Exporta:
+  alinhar(img: np.ndarray) -> np.ndarray
 """
 
 import logging
@@ -16,15 +19,15 @@ log = logging.getLogger(__name__)
 
 PAGE_WIDTH = 1000
 
-_MX   = 0.10
+_MX = 0.10
 _MY_T = 0.08
 _MY_B = 0.07
 
-DEBUG     = os.environ.get("OMR_DEBUG", "0") == "1"
+DEBUG = os.environ.get("OMR_DEBUG", "0") == "1"
 DEBUG_DIR = Path("/tmp/omr_autodetect_debug")
 
 
-def _dbg(name: str, img: np.ndarray):
+def _dbg(name: str, img: np.ndarray) -> None:
     if not DEBUG:
         return
     DEBUG_DIR.mkdir(exist_ok=True)
@@ -33,7 +36,7 @@ def _dbg(name: str, img: np.ndarray):
 
 def _order_points(pts: np.ndarray) -> np.ndarray:
     rect = np.zeros((4, 2), dtype="float32")
-    s    = pts.sum(axis=1)
+    s = pts.sum(axis=1)
     diff = np.diff(pts, axis=1)
     rect[0] = pts[np.argmin(s)]
     rect[2] = pts[np.argmax(s)]
@@ -52,21 +55,22 @@ def _calcular_page_height(rect: np.ndarray) -> int:
 
 
 def _four_point_transform(image: np.ndarray, pts: np.ndarray) -> np.ndarray:
-    rect   = _order_points(pts)
+    rect = _order_points(pts)
     page_h = _calcular_page_height(rect)
-    dst    = np.array(
-        [[0, 0], [PAGE_WIDTH - 1, 0],
-         [PAGE_WIDTH - 1, page_h - 1], [0, page_h - 1]],
+    dst = np.array(
+        [[0, 0], [PAGE_WIDTH - 1, 0], [PAGE_WIDTH - 1, page_h - 1], [0, page_h - 1]],
         dtype="float32",
     )
-    M      = cv2.getPerspectiveTransform(rect, dst)
+    M = cv2.getPerspectiveTransform(rect, dst)
     result = cv2.warpPerspective(image, M, (PAGE_WIDTH, page_h))
     log.info(f"[Warp] → {PAGE_WIDTH}×{page_h}px")
     return result
 
 
-def _encontrar_quadradinho(quad: np.ndarray, nome: str = "") -> tuple[int, int, int, int]:
-    qh, qw    = quad.shape[:2]
+def _encontrar_quadradinho(
+    quad: np.ndarray, nome: str = ""
+) -> tuple[int, int, int, int]:
+    qh, qw = quad.shape[:2]
     area_quad = qh * qw
 
     blur = cv2.GaussianBlur(quad, (3, 3), 0)
@@ -83,7 +87,7 @@ def _encontrar_quadradinho(quad: np.ndarray, nome: str = "") -> tuple[int, int, 
         hull_area = cv2.contourArea(cv2.convexHull(cnt))
         if hull_area > 0 and (area / hull_area) < 0.85:
             continue
-        peri  = cv2.arcLength(cnt, True)
+        peri = cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, 0.05 * peri, True)
         if not (4 <= len(approx) <= 6):
             continue
@@ -92,14 +96,20 @@ def _encontrar_quadradinho(quad: np.ndarray, nome: str = "") -> tuple[int, int, 
             continue
         if max(bw, bh) / max(min(bw, bh), 1) > 2.0:
             continue
-        roi  = quad[by : by + bh, bx : bx + bw]
+        roi = quad[by : by + bh, bx : bx + bw]
         if roi.size == 0 or float(cv2.mean(roi)[0]) > 100:
             continue
-        candidatos.append({
-            "cx": bx + bw // 2, "cy": by + bh // 2,
-            "bx": bx, "by": by, "bw": bw, "bh": bh,
-            "area": area,
-        })
+        candidatos.append(
+            {
+                "cx": bx + bw // 2,
+                "cy": by + bh // 2,
+                "bx": bx,
+                "by": by,
+                "bw": bw,
+                "bh": bh,
+                "area": area,
+            }
+        )
 
     if not candidatos:
         raise ValueError(f"[Alinhamento] {nome}: nenhum marcador encontrado.")
@@ -117,18 +127,26 @@ def _encontrar_quadradinho(quad: np.ndarray, nome: str = "") -> tuple[int, int, 
     return cx, cy, corner_x, corner_y
 
 
-def _alinhar(img: np.ndarray) -> np.ndarray:
-    gray  = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img.copy()
-    h, w  = gray.shape
-    mx    = int(w * _MX)
-    my_t  = int(h * _MY_T)
-    my_b  = int(h * _MY_B)
+def alinhar(img: np.ndarray) -> np.ndarray:
+    """
+    Detecta os 4 marcadores quadrados nos cantos e aplica warp de perspectiva.
+
+    Parâmetros:
+        img — imagem BGR ou grayscale carregada com OpenCV
+
+    Retorna imagem BGR alinhada com largura PAGE_WIDTH pixels.
+    """
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img.copy()
+    h, w = gray.shape
+    mx = int(w * _MX)
+    my_t = int(h * _MY_T)
+    my_b = int(h * _MY_B)
 
     regioes = {
-        "TL": (gray[0:my_t,       0:mx],          0,      0),
-        "TR": (gray[0:my_t,       w - mx : w],    w - mx, 0),
-        "BL": (gray[h - my_b : h, 0:mx],          0,      h - my_b),
-        "BR": (gray[h - my_b : h, w - mx : w],   w - mx, h - my_b),
+        "TL": (gray[0:my_t, 0:mx], 0, 0),
+        "TR": (gray[0:my_t, w - mx : w], w - mx, 0),
+        "BL": (gray[h - my_b : h, 0:mx], 0, h - my_b),
+        "BR": (gray[h - my_b : h, w - mx : w], w - mx, h - my_b),
     }
 
     corners = []
@@ -140,18 +158,3 @@ def _alinhar(img: np.ndarray) -> np.ndarray:
     aligned = _four_point_transform(img, np.array(corners, dtype="float32"))
     _dbg("aligned", aligned)
     return aligned
-
-
-def carregar_imagem(img_path: str) -> np.ndarray:
-    img = cv2.imread(img_path)
-    if img is None:
-        raise ValueError(f"Não foi possível abrir '{img_path}'.")
-    return _alinhar(img)
-
-
-def carregar_imagem_bytes(data: bytes) -> np.ndarray:
-    arr = np.frombuffer(data, np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Não foi possível decodificar a imagem.")
-    return _alinhar(img)

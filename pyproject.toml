@@ -12,14 +12,15 @@ dependencies = [
     "pytesseract",
     "scikit-learn",
     "python-multipart>=0.0.22",
+    "pydantic-settings>=2.0",
 ]
 
 [project.optional-dependencies]
 dev = ["httpx", "pytest"]
 
 [tool.uv]
-# Para rodar: uv run python scripts/testar.py data/cartao.jpg
-#             uv run uvicorn src.app:app --reload --port 8001
+# Para rodar: uv run python scripts/smoke_test.py data/cartao.jpg
+#             uv run uvicorn src.api.app:app --reload --port 8001
 
 [build-system]
 requires = ["hatchling"]

@@ -1,6 +1,11 @@
 """
-ocr.py — Extração de CPF via Tesseract.
-Idêntico ao projeto principal.
+core/ocr.py — Extração de CPF via Tesseract.
+
+Exporta:
+  validar_cpf(cpf: str) -> bool
+  formatar_cpf(d: str) -> str
+  ocr_para_cpf(img: np.ndarray) -> Optional[str]
+  extrair_cpf(img: np.ndarray) -> tuple[Optional[str], int]
 """
 
 import re
@@ -11,7 +16,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-from src.config import CPF_ROI, MAX_OCR_RETRIES
+from src.settings.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -62,9 +67,9 @@ def ocr_para_cpf(img: np.ndarray) -> Optional[str]:
 
 def extrair_cpf(img: np.ndarray) -> tuple[Optional[str], int]:
     """Orquestra 3 estratégias: imagem completa, ROI, ROI zoom+denoised."""
-    x0_f, x1_f, y0_f, y1_f = CPF_ROI
+    x0_f, x1_f, y0_f, y1_f = settings.CPF_ROI
     h, w = img.shape[:2]
-    roi  = img[int(h * y0_f) : int(h * y1_f), int(w * x0_f) : int(w * x1_f)]
+    roi = img[int(h * y0_f) : int(h * y1_f), int(w * x0_f) : int(w * x1_f)]
 
     estrategias = [("completa", img), ("roi_cpf", roi)]
     if roi.size > 0:
@@ -72,7 +77,7 @@ def extrair_cpf(img: np.ndarray) -> tuple[Optional[str], int]:
         dn = cv2.fastNlMeansDenoisingColored(up, None, 10, 10, 7, 21)
         estrategias.append(("roi_zoom", dn))
 
-    for i, (nome, frame) in enumerate(estrategias[:MAX_OCR_RETRIES], 1):
+    for i, (nome, frame) in enumerate(estrategias[: settings.MAX_OCR_RETRIES], 1):
         cpf = ocr_para_cpf(frame)
         if cpf:
             log.info(f"[CPF] Encontrado em tentativa {i} ({nome}): {cpf}")
@@ -80,4 +85,4 @@ def extrair_cpf(img: np.ndarray) -> tuple[Optional[str], int]:
         log.warning(f"[CPF] '{nome}' não detectou CPF.")
 
     log.error("[CPF] Todas as tentativas falharam.")
-    return None, MAX_OCR_RETRIES
+    return None, settings.MAX_OCR_RETRIES

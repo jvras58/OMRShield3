@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi.testclient import TestClient
-from src.app import app
+from src.api.app import app
 
 client = TestClient(app)
 
@@ -43,12 +43,14 @@ def testar_cartao(img_path: Path, dia: int, salvar_grid: bool):
         return
 
     data = r.json()
-    n    = data["total_questoes_detectadas"]
-    exp  = data["questoes_esperadas"]
-    ok   = "✓" if data["status"] in ("ok", "parcial") else "✗"
+    n = data["total_questoes_detectadas"]
+    exp = data["questoes_esperadas"]
+    ok = "✓" if data["status"] in ("ok", "parcial") else "✗"
 
-    print(f"  {ok} status={data['status']}  cpf={data['cpf']}  "
-          f"questoes={n}/{exp}  avisos={len(data['avisos'])}")
+    print(
+        f"  {ok} status={data['status']}  cpf={data['cpf']}  "
+        f"questoes={n}/{exp}  avisos={len(data['avisos'])}"
+    )
 
     if data["avisos"]:
         for av in data["avisos"]:
@@ -106,15 +108,17 @@ def testar_batch(img_path: Path, dia: int):
     data = r.json()
     print(f"  ✓  total={data['total_arquivos']}  processados={data['processados']}")
     for item in data["resultados"]:
-        print(f"     {item['arquivo']}: {item['status']}  "
-              f"q={item['total_questoes_detectadas']}  "
-              f"grid_url={item['grid_url']}")
+        print(
+            f"     {item['arquivo']}: {item['status']}  "
+            f"q={item['total_questoes_detectadas']}  "
+            f"grid_url={item['grid_url']}"
+        )
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("imagem")
-    ap.add_argument("--dia",         type=int, default=1)
+    ap.add_argument("--dia", type=int, default=1)
     ap.add_argument("--salvar-grid", action="store_true")
     args = ap.parse_args()
 
