@@ -158,87 +158,114 @@ def alinhar(img: np.ndarray) -> np.ndarray:
     return aligned
 
 
+_TEMPLATE_PATH = (
+    Path(__file__).parent.parent / "assets" / "template_questao_resposta.npy"
+)
+_template_cache: np.ndarray | None = None
+
+
+def _get_template() -> np.ndarray | None:
+    global _template_cache
+    if _template_cache is None and _TEMPLATE_PATH.exists():
+        _template_cache = np.load(str(_TEMPLATE_PATH))
+    return _template_cache
+
+
 def detectar_y_bolhas(img: np.ndarray) -> float:
     """
-    Detecta o Y de início das bolhas de forma robusta.
+    Localiza o início da zona de bolhas via template matching da faixa
+    "QUESTÃO/RESPOSTA".
 
-    Estratégia de dois passos:
-      1. Encontra o primeiro grande pico de pixels escuros na janela de busca
-         — esse pico corresponde à linha impressa "QUESTÃO/RESPOSTA" que
-         separa o cabeçalho da grelha de bolhas.
-      2. Avança a partir do pico até encontrar o VALE seguinte (região com
-         < 15% do pico), que é o espaço em branco entre o cabeçalho e a
-         primeira linha de bolhas. Esse ponto é o início seguro do recorte.
+    A faixa "QUESTÃO/RESPOSTA" é o elemento visual mais estável do cartão:
+    texto bold sobre fundo lilás, com posição física fixa no impresso. Após
+    o warp para PAGE_HEIGHT=1400, ela aparece sempre no mesmo y relativo
+    independente de ser scanner ou foto de celular.
 
-    A lógica de vale é superior ao simples "+2% após o pico" porque a
-    largura do cabeçalho "QUESTÃO/RESPOSTA" varia entre scanner e foto.
+    O template (arquivo assets/template_questao_resposta.npy) é um recorte
+    em grayscale da faixa, gerado a partir de uma digitalização canônica.
+    O matching usa TM_CCOEFF_NORMED — robusto a variações de brilho.
+
+    Fallback: se o template não existir ou o score for < 0.70, usa
+    análise de densidade de pixels (método anterior) como reserva.
 
     Parâmetros:
         img — imagem BGR já alinhada (PAGE_WIDTH × PAGE_HEIGHT)
 
     Retorna:
-        fração [0.0, 1.0] — fallback se a detecção não for confiável.
+        fração [0.0, 1.0] do Y onde começa a zona de bolhas.
     """
+    h, w = img.shape[:2]
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img.copy()
-    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-    h = gray.shape[0]
 
+    template = _get_template()
+
+    if template is not None:
+        # Região de busca: 50%–85% da altura (onde a faixa sempre está)
+        y_search_min = int(h * 0.50)
+        y_search_max = int(h * 0.85)
+
+        # Mesma faixa horizontal usada ao criar o template (1/4 a 3/4)
+        x0, x1 = w // 4, 3 * w // 4
+        region = gray[y_search_min:y_search_max, x0:x1]
+
+        result = cv2.matchTemplate(region, template, cv2.TM_CCOEFF_NORMED)
+        _, score, _, max_loc = cv2.minMaxLoc(result)
+        y_match = y_search_min + max_loc[1]
+
+        log.info(
+            f"[YBolhas] Template match: y={y_match}px frac={y_match / h:.4f} score={score:.4f}"
+        )
+
+        if score >= 0.70:
+            frac = float(np.clip(y_match / h, 0.0, 1.0))
+
+            if DEBUG:
+                vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                th = template.shape[0]
+                cv2.rectangle(vis, (x0, y_match), (x1, y_match + th), (0, 255, 0), 3)
+                _dbg("y_bolhas_detection", vis)
+
+            return frac
+
+        log.warning(
+            f"[YBolhas] Score baixo ({score:.3f}), usando fallback por densidade."
+        )
+    else:
+        log.warning(
+            f"[YBolhas] Template não encontrado em {_TEMPLATE_PATH}. Usando fallback."
+        )
+
+    # ── Fallback: análise de densidade (usado se template indisponível) ──
+    gray_norm = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
     y_min = int(h * settings.HEADER_SEARCH_Y_MIN_FRAC)
     y_max = int(h * settings.HEADER_SEARCH_Y_MAX_FRAC)
-    strip = gray[y_min:y_max, :]
-    dark_per_row = (strip < 150).sum(axis=1).astype(np.float32)
+    dark = (gray_norm[y_min:y_max, :] < 150).sum(axis=1).astype(np.float32)
 
-    if dark_per_row.max() == 0:
+    if dark.max() == 0:
         log.warning(
-            f"[YBolhas] Sem pixels escuros. Fallback={settings.BOLHAS_Y_MIN_FRAC_FALLBACK}"
+            f"[YBolhas] Fallback: sem pixels escuros → {settings.BOLHAS_Y_MIN_FRAC_FALLBACK}"
         )
         return settings.BOLHAS_Y_MIN_FRAC_FALLBACK
 
-    # Suaviza com janela maior para ignorar ruído entre bolhas individuais
-    smooth = np.convolve(dark_per_row, np.ones(9) / 9, mode="same")
-
-    # Passo 1: pico máximo = linha "QUESTÃO/RESPOSTA"
+    smooth = np.convolve(dark, np.ones(9) / 9, mode="same")
     peak_idx = int(np.argmax(smooth))
     peak_val = smooth[peak_idx]
     confidence = peak_val / max(float(np.median(smooth)), 1.0)
 
     if confidence < 2.0:
         log.warning(
-            f"[YBolhas] Pico fraco (ratio={confidence:.1f}). "
-            f"Fallback={settings.BOLHAS_Y_MIN_FRAC_FALLBACK}"
+            f"[YBolhas] Fallback: pico fraco → {settings.BOLHAS_Y_MIN_FRAC_FALLBACK}"
         )
         return settings.BOLHAS_Y_MIN_FRAC_FALLBACK
 
-    # Passo 2: após o pico, procura o vale (espaço antes da 1ª bolha)
-    vale_thr = peak_val * 0.15
-    vale_idx = None
-    for i in range(peak_idx, len(smooth)):
-        if smooth[i] < vale_thr:
-            vale_idx = i
+    inicio_idx = peak_idx
+    for i in range(peak_idx, 0, -1):
+        if smooth[i] < peak_val * 0.15:
+            inicio_idx = i
             break
 
-    if vale_idx is not None:
-        # Recua 5px para garantir margem de segurança acima da 1ª bolha
-        y_result = y_min + vale_idx - 5
-        log.info(
-            f"[YBolhas] Pico em y={y_min + peak_idx}px, vale em y={y_min + vale_idx}px "
-            f"→ início bolhas em y={y_result}px ({y_result / h:.3f})"
-        )
-    else:
-        # Sem vale claro: fallback conservador
-        log.warning("[YBolhas] Vale não encontrado após pico. Usando fallback.")
-        return settings.BOLHAS_Y_MIN_FRAC_FALLBACK
-
-    frac = float(np.clip(y_result / h, 0.0, 1.0))
-
-    if DEBUG:
-        vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        cv2.line(
-            vis, (0, y_min + peak_idx), (vis.shape[1], y_min + peak_idx), (0, 0, 255), 2
-        )
-        cv2.line(vis, (0, y_result), (vis.shape[1], y_result), (0, 255, 0), 2)
-        _dbg("y_bolhas_detection", vis)
-
+    frac = float(np.clip((y_min + inicio_idx) / h, 0.0, 1.0))
+    log.info(f"[YBolhas] Fallback densidade: frac={frac:.4f}")
     return frac
 
 
