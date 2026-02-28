@@ -1,20 +1,28 @@
 """
-Lógica de negócio das rotas da API OMR.
+api/cartao/controllers.py — Lógica de negócio das rotas da API OMR.
 
-As funções recebem extrator e cache como parâmetros explícitos
-(injetados pelo FastAPI via Depends).
+As funções recebem extrator, cache e broker como parâmetros explícitos
+(injetados pelo FastAPI via Depends) — sem globais, fácil de testar.
 """
 
 import logging
 import uuid
 
 from fastapi import HTTPException
+from faststream.redis import RedisBroker
 
-from src.api.cartao.schemas import BatchItemResponse, BatchResponse, CartaoResponse
+from src.api.cartao.schemas import (
+    BatchEnqueueResponse,
+    CartaoResponse,
+    JobStatusResponse,
+)
 from src.core.visualizer import render_para_b64, render_para_bytes
 from src.infrastructure.cache import GridCache
+from src.models.resultado import CartaoJob
 from src.services.cartao_service import ExtratorCartao
 from src.settings.config import settings
+
+STREAM_NAME = "omr.batch"
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +42,14 @@ def processar_upload(
     grid_url = None
 
     if resultado.img_alinhada is not None:
-        cache.set(job_id, resultado.img_alinhada, resultado.respostas, dia)
+        cache.set(
+            job_id,
+            resultado.img_alinhada,
+            resultado.respostas,
+            dia,
+            cpf=resultado.cpf,
+            avisos=resultado.avisos,
+        )
         grid_url = f"/cartao/{job_id}/grid"
 
         if incluir_grid:
@@ -54,55 +69,74 @@ def processar_upload(
     )
 
 
-def processar_lote(
+async def enfileirar_lote(
     arquivos: list[tuple[str, bytes]],
     dia: int,
-    extrator: ExtratorCartao,
     cache: GridCache,
-) -> BatchResponse:
-    """Processa uma lista de (nome, bytes) e devolve o BatchResponse."""
-    resultados = []
+    broker: RedisBroker,
+) -> BatchEnqueueResponse:
+    """
+    Para cada arquivo:
+      1. Salva a imagem raw no Redis (temp:{job_id})
+      2. Publica mensagem leve no Redis Stream 'omr.batch'
 
-    for nome, data in arquivos:
-        try:
-            r = processar_upload(
-                data, dia=dia, incluir_grid=False, extrator=extrator, cache=cache
-            )
-            resultados.append(
-                BatchItemResponse(
-                    arquivo=nome,
-                    job_id=r.job_id,
-                    status=r.status,
-                    cpf=r.cpf,
-                    total_questoes_detectadas=r.total_questoes_detectadas,
-                    respostas=r.respostas,
-                    avisos=r.avisos,
-                    grid_url=r.grid_url,
-                )
-            )
-        except Exception as exc:
-            log.exception("Erro ao processar arquivo '%s'", nome)
-            resultados.append(
-                BatchItemResponse(
-                    arquivo=nome,
-                    job_id=None,
-                    status="falhou",
-                    cpf=None,
-                    total_questoes_detectadas=0,
-                    respostas={},
-                    avisos=[str(exc)],
-                )
-            )
+    Retorna imediatamente com os job_ids — sem bloquear o event loop.
+    """
+    job_ids = []
 
-    return BatchResponse(
-        total_arquivos=len(resultados),
-        processados=sum(1 for r in resultados if r.status != "falhou"),
-        resultados=resultados,
+    for filename, data in arquivos:
+        job_id = str(uuid.uuid4())
+        job = CartaoJob(job_id=job_id, dia=dia, filename=filename)
+
+        cache.set_temp(job_id, data)
+
+        await broker.publish(job.model_dump(), stream=STREAM_NAME)
+
+        job_ids.append(job_id)
+        log.info(f"[Batch] Enfileirado job_id={job_id} arquivo={filename}")
+
+    return BatchEnqueueResponse(
+        job_ids=job_ids,
+        total=len(job_ids),
+        status="enqueued",
+        status_url_tpl="/cartao/{job_id}/status",
+    )
+
+
+def consultar_status(job_id: str, cache: GridCache) -> JobStatusResponse:
+    """
+    Consulta o Redis para saber se o job foi processado.
+
+    Estados possíveis:
+      "pending" — worker ainda não processou (temp:{job_id} existe mas meta não)
+      "done"    — processado com sucesso
+      "failed"  — worker encontrou erro irrecuperável
+      404       — job_id desconhecido ou TTL expirado
+    """
+    status_data = cache.get_status(job_id)
+
+    if status_data is None:
+        if cache.get_temp(job_id) is not None:
+            return JobStatusResponse(job_id=job_id, status="pending")
+        raise HTTPException(
+            status_code=404,
+            detail=f"job_id '{job_id}' não encontrado ou expirado.",
+        )
+
+    grid_url = f"/cartao/{job_id}/grid" if status_data["status"] == "done" else None
+
+    return JobStatusResponse(
+        job_id=job_id,
+        status=status_data["status"],
+        respostas=status_data.get("respostas"),
+        cpf=status_data.get("cpf"),
+        avisos=status_data.get("avisos"),
+        grid_url=grid_url,
     )
 
 
 def obter_grid_jpeg(job_id: str, cache: GridCache) -> bytes:
-    """Recupera e renderiza o grid JPEG de um job_id. Levanta 404 se não encontrado."""
+    """Recupera e renderiza o grid JPEG. Levanta 404 se não encontrado."""
     entry = cache.get(job_id)
     if entry is None:
         raise HTTPException(
@@ -110,6 +144,5 @@ def obter_grid_jpeg(job_id: str, cache: GridCache) -> bytes:
             detail=f"job_id '{job_id}' não encontrado ou expirado "
             f"(TTL: {settings.CACHE_TTL_SECONDS}s).",
         )
-
     img, respostas, dia = entry
     return render_para_bytes(img, respostas, dia)

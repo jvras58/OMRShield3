@@ -14,19 +14,21 @@ services:
         condition: service_healthy
     command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --workers 4
 
-  # ── Worker FastStream (processamento em lote assíncrono) ──────────────────────
-  # Desabilitado — habilitar quando FastStream for implementado em worker/consumer.py
-  # worker:
-  #   build: .
-  #   image: omrshield
-  #   volumes:
-  #     - ./data:/data
-  #   environment:
-  #     - REDIS_URL=redis://redis:6379
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #   command: faststream run src.worker.consumer:app
+  # ── Worker FastStream ─────────────────────────────────────────────────────────
+  worker:
+    build: .
+    image: omrshield
+    volumes:
+      - ./data:/data
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: faststream run src.worker.consumer:app
+    # Para escalar horizontalmente: docker compose up --scale worker=4
+    deploy:
+      replicas: 2
 
   # ── Redis ─────────────────────────────────────────────────────────────────────
   redis:

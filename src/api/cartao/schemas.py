@@ -1,5 +1,5 @@
 """
-api/schemas.py — Schemas Pydantic para request/response da API.
+api/cartao/schemas.py — Schemas Pydantic para request/response da API.
 """
 
 from typing import Optional
@@ -35,3 +35,22 @@ class BatchResponse(BaseModel):
     total_arquivos: int
     processados: int
     resultados: list[BatchItemResponse]
+
+class BatchEnqueueResponse(BaseModel):
+    """Resposta imediata do POST /cartao/batch — retorna antes do processamento."""
+
+    job_ids: list[str]
+    total: int
+    status: str = "enqueued"
+    status_url_tpl: str
+
+
+class JobStatusResponse(BaseModel):
+    """Resposta do GET /cartao/{job_id}/status."""
+
+    job_id: str
+    status: str
+    respostas: Optional[dict[int, str]] = None
+    cpf: Optional[str] = None
+    avisos: Optional[list[str]] = None
+    grid_url: Optional[str] = None
