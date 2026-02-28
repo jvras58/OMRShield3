@@ -60,8 +60,8 @@ def resultado_cartao(client_real, imagem_bytes_real, imagem_path, dia_prova):
 
 
 def test_integration_health(client_real):
-    """Pipeline real: GET /health deve retornar ok."""
-    r = client_real.get("/health")
+    """Pipeline real: GET / deve retornar ok."""
+    r = client_real.get("/")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 

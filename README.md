@@ -220,7 +220,7 @@ tests/
 │   ├── test_batch.py            ← POST /cartao/batch (enfileiramento, broker)
 │   ├── test_status.py           ← GET /cartao/{id}/status (pending, done, failed)
 │   ├── test_grid.py             ← GET /cartao/{id}/grid (JPEG, 404, fluxo completo)
-│   ├── test_health.py           ← GET /health
+│   ├── test_health.py           ← GET /
 │   └── test_schemas.py          ← Schemas Pydantic (validação e serialização)
 ├── core/
 │   └── test_detection.py        ← Pipeline OpenCV com dados sintéticos
@@ -288,7 +288,7 @@ Se nenhuma imagem estiver disponível, os testes são **automaticamente pulados*
 
 | Teste | Verifica |
 |---|---|
-| `test_integration_health` | `/health` retorna `ok` |
+| `test_integration_health` | `/` retorna `ok` |
 | `test_integration_cartao_nao_falhou` | status é `ok` ou `parcial` (nunca `falhou`) |
 | `test_integration_cartao_detectou_questoes` | pelo menos 1 questão detectada |
 | `test_integration_cartao_respostas_sao_letras_validas` | todas as respostas são A–E |
