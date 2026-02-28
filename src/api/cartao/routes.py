@@ -1,19 +1,21 @@
 """
-api/routes.py — Definição das rotas FastAPI do OMR.
+api/cartao/routes.py — Definição das rotas FastAPI do OMR.
 
 Apenas o contrato HTTP (path, método, schema).
-Toda a lógica vive em api/controllers.py.
+Toda a lógica vive em controllers.py.
+Dependências (extrator, cache) são injetadas via Depends().
 """
 
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import Response
 from pydantic import conint
 
 from src.api.cartao.controllers import obter_grid_jpeg, processar_lote, processar_upload
 from src.api.cartao.schemas import BatchResponse, CartaoResponse
+from src.api.deps import CacheDep, ExtractorDep
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -22,33 +24,32 @@ router = APIRouter()
 @router.post("/cartao", response_model=CartaoResponse, summary="Processar cartão")
 async def processar_cartao(
     file: Annotated[UploadFile, File(description="Imagem JPEG/PNG do cartão-resposta")],
+    extrator: ExtractorDep,
+    cache: CacheDep,
     dia: Annotated[conint(ge=1), Form(description="Dia da prova (1, 2, ...)")] = 1,
     incluir_grid: Annotated[
-        bool,
-        Form(description="Se true, retorna grid_image_b64 no JSON de resposta"),
+        bool, Form(description="Se true, retorna grid_image_b64 no JSON")
     ] = False,
 ):
     """
     Processa uma imagem do cartão-resposta e retorna:
     - JSON com respostas detectadas (Q1–Q90)
     - CPF (se detectável via OCR)
-    - Imagem do grid anotado (base64, se incluir_grid=true)
+    - Imagem do grid anotado em base64 (se incluir_grid=true)
     - URL para baixar a imagem do grid posteriormente
     """
     data = await file.read()
-    try:
-        return processar_upload(data, dia=dia, incluir_grid=incluir_grid)
-    except Exception as exc:
-        log.exception("Erro ao processar cartão")
-        raise HTTPException(status_code=422, detail=str(exc))
+    return processar_upload(
+        data, dia=dia, incluir_grid=incluir_grid, extrator=extrator, cache=cache
+    )
 
 
 @router.post(
-    "/cartao/batch",
-    response_model=BatchResponse,
-    summary="Processar múltiplos cartões",
+    "/cartao/batch", response_model=BatchResponse, summary="Processar múltiplos cartões"
 )
 async def processar_lote_route(
+    extrator: ExtractorDep,
+    cache: CacheDep,
     files: list[UploadFile] = File(description="Lista de imagens"),
     dia: Annotated[conint(ge=1), Form(description="Dia da prova")] = 1,
 ):
@@ -57,7 +58,7 @@ async def processar_lote_route(
     Cada resultado inclui `grid_url` para visualização posterior.
     """
     arquivos = [(f.filename or "?", await f.read()) for f in files]
-    return processar_lote(arquivos, dia=dia)
+    return processar_lote(arquivos, dia=dia, extrator=extrator, cache=cache)
 
 
 @router.get(
@@ -66,12 +67,13 @@ async def processar_lote_route(
     summary="Baixar imagem do grid",
     responses={200: {"content": {"image/jpeg": {}}}, 404: {}},
 )
-async def grid_imagem(job_id: str):
+async def grid_imagem(job_id: str, cache: CacheDep):
     """
     Retorna a imagem JPEG do grid anotado de um processamento anterior.
     O `job_id` é retornado na resposta do POST /cartao.
+    Expira após CACHE_TTL_SECONDS segundos (padrão: 1 hora).
     """
-    jpeg = obter_grid_jpeg(job_id)
+    jpeg = obter_grid_jpeg(job_id, cache=cache)
     return Response(content=jpeg, media_type="image/jpeg")
 
 

@@ -13,10 +13,11 @@ dependencies = [
     "scikit-learn",
     "python-multipart>=0.0.22",
     "pydantic-settings>=2.0",
+    "redis>=7.2.1",
 ]
 
 [project.optional-dependencies]
-dev = ["httpx", "pytest"]
+dev = ["httpx", "pytest", "fakeredis"]
 
 [tool.uv]
 # Para rodar: uv run python scripts/smoke_test.py data/cartao.jpg

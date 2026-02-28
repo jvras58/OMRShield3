@@ -1,5 +1,5 @@
 services:
-  # ── API FastAPI (processamento individual) ───────────────────────────────────
+  # ── API FastAPI ───────────────────────────────────────────────────────────────
   api:
     build: .
     image: omrshield
@@ -8,25 +8,39 @@ services:
     volumes:
       - ./data:/data
     environment:
-      - BROKER_URL=redis://redis:6379
+      - REDIS_URL=redis://redis:6379
     depends_on:
-      - redis
-    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000
+      redis:
+        condition: service_healthy
+    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --workers 4
 
-  # ── Worker FastStream (processamento em lote) # Desabilitado por enquanto ────────────────────────────────
+  # ── Worker FastStream (processamento em lote assíncrono) ──────────────────────
+  # Desabilitado — habilitar quando FastStream for implementado em worker/consumer.py
   # worker:
   #   build: .
   #   image: omrshield
   #   volumes:
   #     - ./data:/data
   #   environment:
-  #     - BROKER_URL=redis://redis:6379
+  #     - REDIS_URL=redis://redis:6379
   #   depends_on:
-  #     - redis
+  #     redis:
+  #       condition: service_healthy
   #   command: faststream run src.worker.consumer:app
 
-  # ── Broker Redis ─────────────────────────────────────────────────────────────
+  # ── Redis ─────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis_data:

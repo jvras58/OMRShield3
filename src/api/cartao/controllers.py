@@ -1,8 +1,8 @@
 """
-api/controllers.py — Lógica de negócio das rotas da API OMR.
+Lógica de negócio das rotas da API OMR.
 
-As funções aqui são chamadas pelos handlers em api/routes.py,
-mantendo as rotas limpas e focadas apenas no contrato HTTP.
+As funções recebem extrator e cache como parâmetros explícitos
+(injetados pelo FastAPI via Depends).
 """
 
 import logging
@@ -12,25 +12,29 @@ from fastapi import HTTPException
 
 from src.api.cartao.schemas import BatchItemResponse, BatchResponse, CartaoResponse
 from src.core.visualizer import render_para_b64, render_para_bytes
-from src.infrastructure.cache import grid_cache
+from src.infrastructure.cache import GridCache
 from src.services.cartao_service import ExtratorCartao
 from src.settings.config import settings
 
 log = logging.getLogger(__name__)
 
-_extrator = ExtratorCartao()
 
-
-def processar_upload(data: bytes, dia: int, incluir_grid: bool) -> CartaoResponse:
+def processar_upload(
+    data: bytes,
+    dia: int,
+    incluir_grid: bool,
+    extrator: ExtratorCartao,
+    cache: GridCache,
+) -> CartaoResponse:
     """Processa bytes de uma imagem e devolve o CartaoResponse completo."""
     job_id = str(uuid.uuid4())
-    resultado = _extrator.processar_bytes(data, dia=dia)
+    resultado = extrator.processar_bytes(data, dia=dia)
 
     grid_b64 = None
     grid_url = None
 
     if resultado.img_alinhada is not None:
-        grid_cache.set(job_id, resultado.img_alinhada, resultado.respostas, dia)
+        cache.set(job_id, resultado.img_alinhada, resultado.respostas, dia)
         grid_url = f"/cartao/{job_id}/grid"
 
         if incluir_grid:
@@ -50,13 +54,20 @@ def processar_upload(data: bytes, dia: int, incluir_grid: bool) -> CartaoRespons
     )
 
 
-def processar_lote(arquivos: list[tuple[str, bytes]], dia: int) -> BatchResponse:
+def processar_lote(
+    arquivos: list[tuple[str, bytes]],
+    dia: int,
+    extrator: ExtratorCartao,
+    cache: GridCache,
+) -> BatchResponse:
     """Processa uma lista de (nome, bytes) e devolve o BatchResponse."""
     resultados = []
 
     for nome, data in arquivos:
         try:
-            r = processar_upload(data, dia=dia, incluir_grid=False)
+            r = processar_upload(
+                data, dia=dia, incluir_grid=False, extrator=extrator, cache=cache
+            )
             resultados.append(
                 BatchItemResponse(
                     arquivo=nome,
@@ -90,12 +101,14 @@ def processar_lote(arquivos: list[tuple[str, bytes]], dia: int) -> BatchResponse
     )
 
 
-def obter_grid_jpeg(job_id: str) -> bytes:
+def obter_grid_jpeg(job_id: str, cache: GridCache) -> bytes:
     """Recupera e renderiza o grid JPEG de um job_id. Levanta 404 se não encontrado."""
-    entry = grid_cache.get(job_id)
+    entry = cache.get(job_id)
     if entry is None:
         raise HTTPException(
-            status_code=404, detail="job_id não encontrado ou expirado."
+            status_code=404,
+            detail=f"job_id '{job_id}' não encontrado ou expirado "
+            f"(TTL: {settings.CACHE_TTL_SECONDS}s).",
         )
 
     img, respostas, dia = entry

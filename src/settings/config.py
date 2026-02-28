@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     CPF_ROI: tuple[float, float, float, float] = (0.0, 0.38, 0.155, 0.185)
     MAX_OCR_RETRIES: int = 3
 
+    # ── Cache / Redis ─────────────────────────────────────────────────────────
+
+    REDIS_URL: str = "redis://localhost:6379"
+    CACHE_TTL_SECONDS: int = 3600  # job_ids expiram após 1 hora
+
     # ── API ───────────────────────────────────────────────────────────────────
 
     API_HOST: str = "0.0.0.0"
