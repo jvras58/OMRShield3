@@ -7,6 +7,7 @@ Para sobrescrever, crie um arquivo .env na raiz do projeto, ex.:
   API_PORT=8002
 """
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,6 +68,24 @@ class Settings(BaseSettings):
 
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8001
+
+    # ── Validadores de tupla (suporte a variáveis de ambiente) ────────────────
+
+    @field_validator("HOUGH_BLUR_KERNEL", mode="before")
+    @classmethod
+    def _parse_int_tuple(cls, v: object) -> object:
+        if isinstance(v, str):
+            clean = v.strip("()[] ")
+            return tuple(int(x.strip()) for x in clean.split(","))
+        return v
+
+    @field_validator("CPF_ROI", mode="before")
+    @classmethod
+    def _parse_float_tuple(cls, v: object) -> object:
+        if isinstance(v, str):
+            clean = v.strip("()[] ")
+            return tuple(float(x.strip()) for x in clean.split(","))
+        return v
 
     # ── Propriedades derivadas ────────────────────────────────────────────────
 
