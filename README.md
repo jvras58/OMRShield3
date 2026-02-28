@@ -120,19 +120,19 @@ uv run python scripts/smoke_test.py cartao_foto.jpg --salvar-grid
 ```
 src/
 ├── core/
-│   ├── alignment.py       ← warp de perspectiva (antes: loader.py)
-│   ├── detection.py       ← HoughCircles + KMeans + threshold (antes: auto_detect.py)
-│   ├── ocr.py             ← extração de CPF (antes: ocr.py)
+│   ├── alignment.py       ← warp de perspectiva
+│   ├── detection.py       ← HoughCircles + KMeans + threshold
+│   ├── ocr.py             ← extração de CPF
 │   └── visualizer.py      ← grid anotado (antes: visualizer.py)
 ├── infrastructure/
-│   ├── cache.py           ← GridCache em memória (antes: embutido em app.py)
-│   └── image_io.py        ← carregar_imagem / carregar_imagem_bytes (antes: loader.py)
+│   ├── cache.py           ← GridCache em memória
+│   └── image_io.py        ← carregar_imagem / carregar_imagem_bytes
 ├── models/
-│   └── resultado.py       ← Resultado, Status (antes: extractor.py)
+│   └── resultado.py       ← Resultado, Status
 ├── settings/
-│   └── config.py          ← Pydantic Settings + .env (antes: constantes soltas)
+│   └── config.py          ← Pydantic Settings + .env
 ├── services/
-│   └── cartao_service.py  ← ExtratorCartao (antes: extractor.py)
+│   └── cartao_service.py  ← ExtratorCartao
 ├── api/
 │   ├── app.py             ← criação do FastAPI
 │   ├── routes.py          ← todos os handlers
