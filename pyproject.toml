@@ -23,6 +23,9 @@ dev = ["httpx", "pytest", "fakeredis", "pytest-cov"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "integration: testes de integração que exigem imagem real de cartão (use --imagem)",
+]
 pythonpath = ["."]
 
 [tool.coverage.run]
