@@ -28,7 +28,7 @@ services:
     command: faststream run src.worker.consumer:app
     # Para escalar horizontalmente: docker compose up --scale worker=4
     deploy:
-      replicas: 2
+      replicas: 4
 
   # ── Redis ─────────────────────────────────────────────────────────────────────
   redis:
