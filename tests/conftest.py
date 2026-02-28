@@ -12,11 +12,16 @@ Estrutura de mocks:
   client_falho        → TestClient com extrator que sempre falha
   client_parcial      → TestClient com extrator que retorna parcial
   client_com_auth     → TestClient sem overrides de auth (testa autenticação real)
+
+Integração (pipeline real, sem mocks de IA):
+  imagem_path         → Path para imagem real (--imagem ou data/cartao_foto.jpg)
+  client_real         → TestClient com ExtratorCartao real + FakeRedis
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import cv2
 import fakeredis
@@ -29,6 +34,23 @@ from src.api.deps import get_broker, get_cache, get_extrator, verify_token
 from src.infrastructure.cache import GridCache
 from src.models.resultado import Resultado, Status
 from src.services.cartao_service import ExtratorCartao
+
+
+# ── Detecção de Tesseract ─────────────────────────────────────────────────────
+
+
+def _tesseract_disponivel() -> bool:
+    """Verifica se o Tesseract OCR está acessível no PATH."""
+    try:
+        import pytesseract
+
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+TESSERACT_DISPONIVEL: bool = _tesseract_disponivel()
 
 
 # ── Imagem sintética ──────────────────────────────────────────────────────────
@@ -217,3 +239,129 @@ def client_com_auth(fake_cache, mock_extrator, mock_broker) -> TestClient:
     c = TestClient(app, raise_server_exceptions=False)
     yield c
     app.dependency_overrides.clear()
+
+
+# ── Integração (pipeline real) ────────────────────────────────────────────────
+
+# Imagens padrão disponíveis em data/
+_DATA_DIR = Path(__file__).parent.parent / "data"
+_IMAGENS_PADRAO = [
+    _DATA_DIR / "cartao_foto.jpg",
+    _DATA_DIR / "cartao_digitalizado.jpg",
+]
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Adiciona --imagem para testes de integração com imagem real."""
+    parser.addoption(
+        "--imagem",
+        action="store",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Caminho para imagem real de cartão-resposta usada nos testes de "
+            "integração. Se omitido, procura em data/cartao_foto.jpg ou "
+            "data/cartao_digitalizado.jpg."
+        ),
+    )
+    parser.addoption(
+        "--dia",
+        action="store",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Dia da prova usado nos testes de integração (padrão: 1).",
+    )
+    parser.addoption(
+        "--salvar-grid",
+        action="store_true",
+        default=False,
+        help="Salva as imagens de grid geradas nos testes de integração em outputs/.",
+    )
+
+
+@pytest.fixture(scope="session")
+def imagem_path(request: pytest.FixtureRequest) -> Path:
+    """
+    Resolve o caminho da imagem real para testes de integração.
+
+    Ordem de busca:
+    1. Argumento --imagem passado na linha de comando.
+    2. Primeiro arquivo existente em data/ (cartao_foto.jpg, cartao_digitalizado.jpg).
+
+    O teste que usar esta fixture é automaticamente pulado se nenhuma imagem
+    for encontrada.
+    """
+    cli_path = request.config.getoption("--imagem")
+    if cli_path:
+        p = Path(cli_path)
+        if not p.exists():
+            pytest.skip(f"Imagem não encontrada: {p}")
+        return p
+
+    for candidate in _IMAGENS_PADRAO:
+        if candidate.exists():
+            return candidate
+
+    pytest.skip(
+        "Nenhuma imagem real disponível. "
+        "Forneça --imagem <path> ou adicione uma imagem em data/."
+    )
+
+
+@pytest.fixture(scope="session")
+def dia_prova(request: pytest.FixtureRequest) -> int:
+    """Dia da prova lido do argumento --dia (padrão: 1)."""
+    return int(request.config.getoption("--dia"))
+
+
+@pytest.fixture(scope="session")
+def tesseract_disponivel() -> bool:
+    """Indica se o Tesseract OCR está disponível no ambiente."""
+    return TESSERACT_DISPONIVEL
+
+
+@pytest.fixture(scope="session")
+def client_real(tmp_path_factory) -> TestClient:  # type: ignore[return]
+    """
+    TestClient com pipeline REAL:
+    - ExtratorCartao verdadeiro (OpenCV + HoughCircles + detecção de bolhas)
+    - GridCache sobre FakeRedis (sem servidor Redis externo)
+    - RedisBroker mockado (publish não dispara stream real)
+    - Auth desativada
+
+    OCR (Tesseract): se não estiver instalado, pytesseract.image_to_string é
+    mockado para retornar string vazia — CPF não será detectado, mas o pipeline
+    completo de detecção de bolhas é executado normalmente.
+
+    Escopo session: uma única instância compartilhada entre todos os testes
+    de integração para evitar re-criar o app desnecessariamente.
+    """
+    from src.services.cartao_service import ExtratorCartao
+
+    real_redis = fakeredis.FakeRedis()
+    real_cache = GridCache(real_redis)
+    real_extrator = ExtratorCartao()
+    broker_mock = AsyncMock()
+    broker_mock.publish = AsyncMock(return_value=None)
+
+    app.dependency_overrides[verify_token] = lambda: None
+    app.dependency_overrides[get_extrator] = lambda: real_extrator
+    app.dependency_overrides[get_cache] = lambda: real_cache
+    app.dependency_overrides[get_broker] = lambda: broker_mock
+
+    tess_patch = None
+    if not TESSERACT_DISPONIVEL:
+        tess_patch = patch(
+            "src.core.ocr.pytesseract.image_to_string",
+            return_value="",
+        )
+        tess_patch.start()
+
+    c = TestClient(app, raise_server_exceptions=True)
+    yield c
+
+    if tess_patch is not None:
+        tess_patch.stop()
+    app.dependency_overrides.clear()
+    real_redis.flushall()

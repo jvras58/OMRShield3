@@ -193,13 +193,140 @@ curl -X POST http://localhost:8081/cartao/batch \
 
 ---
 
-## Smoke test
+## Testes
 
-> Requer a API rodando (`docker compose up`).
+A suite de testes é dividida em duas camadas: **unitários** (sem dependências externas) e **integração** (pipeline real com imagem de cartão).
+
+### Instalação das dependências de desenvolvimento
 
 ```bash
-uv run python scripts/smoke_test.py cartao_foto.jpg --salvar-grid
+uv sync --extra dev
 ```
+
+Isso instala `pytest`, `fakeredis` e `pytest-cov`.
+
+---
+
+### Estrutura
+
+```
+tests/
+├── conftest.py                  ← Fixtures globais, mocks e opções de CLI
+├── api/
+│   ├── test_auth.py             ← Autenticação via X-Verify-Token
+│   ├── test_cartao.py           ← POST /cartao (ok, parcial, falhou, dia, grid)
+│   ├── test_batch.py            ← POST /cartao/batch (enfileiramento, broker)
+│   ├── test_status.py           ← GET /cartao/{id}/status (pending, done, failed)
+│   ├── test_grid.py             ← GET /cartao/{id}/grid (JPEG, 404, fluxo completo)
+│   ├── test_health.py           ← GET /health
+│   └── test_schemas.py          ← Schemas Pydantic (validação e serialização)
+├── core/
+│   └── test_detection.py        ← Pipeline OpenCV com dados sintéticos
+│                                   (separadores, calibração de colunas/linhas, ler_bloco)
+├── infrastructure/
+│   └── test_cache.py            ← GridCache com FakeRedis (set/get, TTL, temp, failed)
+├── models/
+│   └── test_resultado.py        ← Resultado, Status, CartaoJob
+├── services/
+│   └── test_cartao_service.py   ← ExtratorCartao com mocks de OCR e OpenCV
+└── integration/
+    └── test_smoke.py            ← Pipeline REAL com imagem de cartão (sem mocks)
+```
+
+---
+
+### Testes unitários
+
+Não precisam de Redis, Tesseract nem imagens reais. Todas as dependências externas são substituídas por mocks (`fakeredis`, `AsyncMock`, `unittest.mock.patch`).
+
+```bash
+# Rodar toda a suite unitária
+uv run pytest tests/ --ignore=tests/integration/
+
+# Rodar um módulo específico
+uv run pytest tests/api/test_cartao.py -v
+
+# Com relatório de cobertura
+uv run pytest tests/ --ignore=tests/integration/ --cov=src --cov-report=term-missing
+```
+
+---
+
+### Testes de integração
+
+Executam o pipeline **completo e real** — OpenCV, HoughCircles, KMeans, threshold — com uma imagem JPEG de cartão-resposta. São os equivalentes pytest do `scripts/smoke_test.py`.
+
+**Tesseract OCR:** se não estiver instalado no sistema, apenas o `pytesseract.image_to_string` é mockado (retorna string vazia). O CPF não será detectado, mas toda a detecção de bolhas roda normalmente.
+
+**Redis:** substituído por `fakeredis` em memória — nenhum serviço externo necessário.
+
+#### Rodar
+
+Por padrão, procura por `data/cartao_foto.jpg` ou `data/cartao_digitalizado.jpg`:
+
+```bash
+uv run pytest tests/integration/ -v -s
+```
+
+Para especificar a imagem e o dia:
+
+```bash
+uv run pytest tests/integration/ -v -s --imagem data/cartao_digitalizado.jpg --dia 2
+```
+
+Para salvar as imagens de grid geradas em `outputs/`:
+
+```bash
+uv run pytest tests/integration/ -v -s --salvar-grid
+```
+
+Se nenhuma imagem estiver disponível, os testes são **automaticamente pulados** (`SKIPPED`) sem falhar.
+
+#### O que é verificado
+
+| Teste | Verifica |
+|---|---|
+| `test_integration_health` | `/health` retorna `ok` |
+| `test_integration_cartao_nao_falhou` | status é `ok` ou `parcial` (nunca `falhou`) |
+| `test_integration_cartao_detectou_questoes` | pelo menos 1 questão detectada |
+| `test_integration_cartao_respostas_sao_letras_validas` | todas as respostas são A–E |
+| `test_integration_cartao_tem_grid_url` | `grid_url` presente (img_alinhada gerada) |
+| `test_integration_cartao_grid_b64_valido` | base64 retornado é JPEG válido (bytes FF D8 FF) |
+| `test_integration_grid_retorna_jpeg` | `GET /grid` devolve `image/jpeg` válido |
+| `test_integration_grid_tamanho_razoavel` | imagem do grid tem mais de 10 KB |
+| `test_integration_batch_*` | enfileiramento retorna 2 job_ids distintos e `status=enqueued` |
+| `test_integration_imprimir_resumo` | imprime todas as respostas detectadas (diagnóstico) |
+
+---
+
+### Suite completa (unitários + integração)
+
+```bash
+uv run pytest tests/ -v
+```
+
+---
+
+### Cobertura
+
+```bash
+uv run pytest tests/ --cov=src --cov-report=term-missing
+```
+
+Cobertura atual por módulo crítico:
+
+| Módulo | Cobertura |
+|---|---|
+| `controllers.py` | 100% |
+| `routes.py` | 100% |
+| `schemas.py` | 100% |
+| `models/resultado.py` | 100% |
+| `services/cartao_service.py` | 100% |
+| `settings/config.py` | 100% |
+| `infrastructure/cache.py` | 93% |
+| `core/detection.py` | 62% |
+
+> `core/alignment.py` e `core/ocr.py` têm cobertura menor pois dependem de Tesseract e imagens reais — cobertos pelos testes de integração.
 
 ---
 
