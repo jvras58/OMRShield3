@@ -16,8 +16,9 @@ Escala horizontal:
 
 import logging
 
-from faststream.redis import RedisMessage
+from faststream.redis import RedisMessage, StreamSub
 
+from src.infrastructure.broker import app as app
 from src.infrastructure.broker import broker
 from src.infrastructure.cache import GridCache, make_grid_cache
 from src.infrastructure.redis_client import get_redis
@@ -43,9 +44,11 @@ def _get_cache() -> GridCache:
 
 
 @broker.subscriber(
-    stream="omr.batch",
-    group="omr-workers",
-    consumer="omr-worker",
+    stream=StreamSub(
+        "omr.batch",
+        group="omr-workers",
+        consumer="omr-worker",
+    ),
 )
 async def processar_cartao_job(job: CartaoJob, msg: RedisMessage) -> None:
     """
