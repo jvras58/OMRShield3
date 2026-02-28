@@ -37,9 +37,7 @@ RUN useradd --create-home --shell /bin/bash appuser
 WORKDIR /app
 COPY src/ ./src/
 
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app && mkdir -p /data
 USER appuser
-
-VOLUME ["/data"]
 
 CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
