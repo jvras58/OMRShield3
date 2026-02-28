@@ -49,6 +49,43 @@ A API ficará disponível em http://localhost:8081.
 
 ---
 
+## Concorrência e escalabilidade
+
+O sistema foi projetado para atender múltiplos usuários simultaneamente.
+
+### Arquitetura
+
+```
+Usuários → Uvicorn (4 workers) → Redis Connection Pool → Redis
+                                       ↓
+                               FastStream Workers (4 réplicas)
+```
+
+### API (`/cartao`)
+
+- O Uvicorn sobe com **4 processos independentes** (`--workers 4`), permitindo processamento paralelo real (sem GIL entre processos)
+- A extração de imagem (CPU-bound) é executada via `run_in_executor`, liberando o event loop para aceitar novas requisições enquanto processa
+
+### Batch (`/cartao/batch`)
+
+- Apenas enfileira no Redis Stream `omr.batch` e retorna imediatamente
+- O processamento real ocorre em **4 workers FastStream** em paralelo (configurado via `replicas: 4` no Compose)
+- Para aumentar a capacidade: `docker compose up --scale worker=N`
+
+### Redis
+
+O Redis é configurado com limites explícitos para evitar instabilidade:
+
+| Parâmetro | Valor | Descrição |
+|---|---|---|
+| `maxmemory` | 512mb | Limite de memória (ajuste conforme o servidor) |
+| `maxmemory-policy` | `allkeys-lru` | Remove chaves menos usadas quando cheia |
+| `tcp-keepalive` | 60s | Detecta conexões mortas rapidamente |
+
+Cada worker mantém um **connection pool** de até 20 conexões com o Redis, reutilizando-as entre requests em vez de abrir uma nova a cada chamada. Com 4 workers na API e 4 workers de batch, o Redis pode receber até **160 conexões simultâneas** no total.
+
+---
+
 ## API
 
 Documentação interativa: http://localhost:8081/docs
@@ -138,10 +175,12 @@ src/
 │   ├── alignment.py       ← warp de perspectiva
 │   ├── detection.py       ← HoughCircles + KMeans + threshold
 │   ├── ocr.py             ← extração de CPF
-│   └── visualizer.py      ← grid anotado (antes: visualizer.py)
+│   └── visualizer.py      ← grid anotado
 ├── infrastructure/
-│   ├── cache.py           ← GridCache em memória
-│   └── image_io.py        ← carregar_imagem / carregar_imagem_bytes
+│   ├── broker.py          ← publicação no Redis Stream
+│   ├── cache.py           ← GridCache (resultados e grids em Redis)
+│   ├── image_io.py        ← carregar_imagem / carregar_imagem_bytes
+│   └── redis_client.py    ← singleton com connection pool
 ├── models/
 │   └── resultado.py       ← Resultado, Status
 ├── settings/
@@ -150,8 +189,11 @@ src/
 │   └── cartao_service.py  ← ExtratorCartao
 ├── api/
 │   ├── app.py             ← criação do FastAPI
-│   ├── routes.py          ← todos os handlers
-│   └── schemas.py         ← Pydantic response models
+│   ├── deps.py            ← injeção de dependências (Depends)
+│   └── cartao/
+│       ├── controllers.py ← lógica de negócio
+│       ├── routes.py      ← contrato HTTP (path, método, schema)
+│       └── schemas.py     ← Pydantic response models
 └── worker/
-    └── consumer.py        ← placeholder FastStream
+    └── consumer.py        ← worker FastStream (consome omr.batch)
 ```
