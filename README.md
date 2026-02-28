@@ -47,6 +47,8 @@ docker compose up --build
 
 A API ficará disponível em http://localhost:8081.
 
+> Para fazer deploy em produção via Railway, consulte o [docs/manual_deploy.md](docs/manual_deploy.md).
+
 ---
 
 ## Autenticação
