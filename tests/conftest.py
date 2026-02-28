@@ -246,8 +246,8 @@ def client_com_auth(fake_cache, mock_extrator, mock_broker) -> TestClient:
 # Imagens padrão disponíveis em data/
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _IMAGENS_PADRAO = [
-    _DATA_DIR / "cartao_foto.jpg",
-    _DATA_DIR / "cartao_digitalizado.jpg",
+    _DATA_DIR / "cartao_foto_tests.jpg",
+    _DATA_DIR / "cartao_digitalizado_tests.jpg",
 ]
 
 
@@ -260,8 +260,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="PATH",
         help=(
             "Caminho para imagem real de cartão-resposta usada nos testes de "
-            "integração. Se omitido, procura em data/cartao_foto.jpg ou "
-            "data/cartao_digitalizado.jpg."
+            "integração. Se omitido, procura em data/cartao_foto_tests.jpg ou "
+            "data/cartao_digitalizado_tests.jpg."
         ),
     )
     parser.addoption(
