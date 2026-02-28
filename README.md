@@ -1,8 +1,10 @@
-# OMR AutoDetect
+# OMRShield — Leitura Automática de Cartões-Resposta
 
-Leitura de cartões-resposta SIMUREKA por **auto-detecção de bolhas** — sem `omr_template.json`.
+Sistema de leitura de folhas de respostas para provas objetivas, utilizando visão computacional (OpenCV) e OCR (Tesseract).
 
-Funciona com foto de celular e scanner, sem calibração prévia.
+Suporta dois modos de processamento:
+- **Individual** — envie uma imagem via API e receba o resultado imediatamente
+- **Em lote** — envie múltiplas imagens e elas são processadas em background via worker
 
 ---
 
