@@ -63,7 +63,7 @@ async def processar_cartao(
 async def processar_lote_route(
     cache: CacheDep,
     broker: BrokerDep,
-    files: list[UploadFile] = File(description="Lista de imagens"),
+    files: Annotated[list[UploadFile], File(description="Lista de imagens")],
     dia: Annotated[conint(ge=1), Form(description="Dia da prova")] = 1,
 ):
     """
