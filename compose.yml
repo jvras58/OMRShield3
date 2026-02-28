@@ -12,6 +12,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      worker:
+        condition: service_healthy
     command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --workers 4
 
   # ── Worker FastStream ─────────────────────────────────────────────────────────
@@ -26,6 +28,12 @@ services:
       redis:
         condition: service_healthy
     command: faststream run src.worker.consumer:app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis, os; redis.Redis.from_url(os.getenv('REDIS_URL','redis://redis:6379')).ping()"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     # Para escalar horizontalmente: docker compose up --scale worker=4
     deploy:
       replicas: 4
@@ -49,6 +57,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 10s
 
 volumes:
   redis_data:
