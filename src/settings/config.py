@@ -7,7 +7,8 @@ Para sobrescrever, crie um arquivo .env na raiz do projeto, ex.:
   API_PORT=8002
 """
 
-from pydantic import field_validator
+from typing import ClassVar
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
     N_BLOCOS: int = 6  # colunas de questões na página
     N_QUESTOES_POR_BLOCO: int = 15  # questões por bloco
     N_ALTERNATIVAS: int = 5  # A B C D E
-    ALTERNATIVAS: list[str] = list("ABCDE")
+    ALTERNATIVAS: ClassVar[list[str]] = list("ABCDE")
 
     # Fração vertical da imagem onde vivem as bolhas (ignora cabeçalho)
     BOLHAS_Y_MIN_FRAC: float = 0.66  # pula cabeçalho "QUESTÃO/RESPOSTA"
@@ -38,7 +39,7 @@ class Settings(BaseSettings):
     HOUGH_MIN_RADIUS: int = 7  # raio mínimo de bolha (px)
     HOUGH_MAX_RADIUS: int = 15  # raio máximo de bolha (px)
 
-    HOUGH_BLUR_KERNEL: tuple[int, int] = (7, 7)
+    HOUGH_BLUR_KERNEL: ClassVar[tuple[int, int]] = (7, 7)
     HOUGH_BLUR_SIGMA: float = 1.5
 
     # ── Separadores entre blocos ──────────────────────────────────────────────
@@ -61,7 +62,7 @@ class Settings(BaseSettings):
     # ── OCR / CPF ─────────────────────────────────────────────────────────────
 
     # (x0_frac, x1_frac, y0_frac, y1_frac) — frações da imagem alinhada
-    CPF_ROI: tuple[float, float, float, float] = (0.0, 0.38, 0.155, 0.185)
+    CPF_ROI: ClassVar[tuple[float, float, float, float]] = (0.0, 0.38, 0.155, 0.185)
     MAX_OCR_RETRIES: int = 3
 
     # ── Cache / Redis ─────────────────────────────────────────────────────────
@@ -74,24 +75,6 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8001
     API_TOKEN: str = ""  # Token obrigatório para autenticar requests. Defina no .env.
-
-    # ── Validadores de tupla (suporte a variáveis de ambiente) ────────────────
-
-    @field_validator("HOUGH_BLUR_KERNEL", mode="before")
-    @classmethod
-    def _parse_int_tuple(cls, v: object) -> object:
-        if isinstance(v, str):
-            clean = v.strip("()[] ")
-            return tuple(int(x.strip()) for x in clean.split(","))
-        return v
-
-    @field_validator("CPF_ROI", mode="before")
-    @classmethod
-    def _parse_float_tuple(cls, v: object) -> object:
-        if isinstance(v, str):
-            clean = v.strip("()[] ")
-            return tuple(float(x.strip()) for x in clean.split(","))
-        return v
 
     # ── Propriedades derivadas ────────────────────────────────────────────────
 

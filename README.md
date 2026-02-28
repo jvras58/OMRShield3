@@ -200,14 +200,35 @@ uv run python scripts/smoke_test.py cartao_foto.jpg --salvar-grid
 
 ---
 
-## Parâmetros (`src/config.py`)
+## Parâmetros (`src/settings/config.py`)
 
-| Parâmetro | Valor | Descrição |
+Os parâmetros abaixo podem ser sobrescritos via `.env`:
+
+| Parâmetro | Valor padrão | Descrição |
 |---|---|---|
 | `N_BLOCOS` | 6 | Colunas de questões |
 | `N_QUESTOES_POR_BLOCO` | 15 | Questões por coluna |
+| `N_ALTERNATIVAS` | 5 | Número de alternativas por questão |
 | `BOLHAS_Y_MIN_FRAC` | 0.66 | Início da área de bolhas (pula cabeçalho) |
-| `HOUGH_PARAM2` | 18 | Sensibilidade do Hough |
+| `BOLHAS_Y_MAX_FRAC` | 1.00 | Fim da área de bolhas |
+| `HOUGH_PARAM2` | 18 | Sensibilidade do Hough (menor = detecta mais) |
+| `HOUGH_MIN_DIST` | 14 | Distância mínima entre centros de bolhas (px) |
+| `FILL_RADIUS` | 9 | Raio do ROI centrado na bolha (px) |
+| `MIN_JUMP_GLOBAL` | 25.0 | Jump mínimo no histograma global |
+| `MIN_JUMP_LOCAL` | 25.0 | Jump mínimo local por questão |
+| `MAX_UNMARKED_VAL` | 140.0 | Valor máximo para considerar bolha sem marcação |
+| `MAX_OCR_RETRIES` | 3 | Tentativas de leitura de CPF |
+| `CACHE_TTL_SECONDS` | 3600 | Tempo de expiração dos resultados no Redis |
+
+> **Parâmetros estáticos — altere diretamente em `src/settings/config.py`:**
+>
+> Os campos abaixo são `ClassVar` e **não podem ser configurados via `.env`**. Para alterá-los, edite o arquivo diretamente:
+>
+> | Parâmetro | Valor padrão | Descrição |
+> |---|---|---|
+> | `ALTERNATIVAS` | `['A','B','C','D','E']` | Rótulos das alternativas |
+> | `HOUGH_BLUR_KERNEL` | `(7, 7)` | Kernel do blur gaussiano antes do Hough |
+> | `CPF_ROI` | `(0.0, 0.38, 0.155, 0.185)` | Região de interesse do CPF (frações x0,x1,y0,y1) |
 
 ---
 
