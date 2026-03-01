@@ -149,6 +149,36 @@ def alinhar(img: np.ndarray) -> np.ndarray:
 
     pts = np.array([marcadores[k] for k in ("TL", "TR", "BR", "BL")], dtype="float32")
     rect = _order_points(pts)
+
+    # Expande o warp além dos marcadores para incluir a folga do impresso,
+    # mas limitado ao espaço real disponível em cada lado para não sair do papel
+    # (o scanner tem margens menores que a foto de celular).
+    h_img, w_img = img.shape[:2]
+    larg = float(np.linalg.norm(rect[1] - rect[0]))  # distância TL→TR
+    alt = float(np.linalg.norm(rect[3] - rect[0]))  # distância TL→BL
+    alvo = settings.WARP_MARGIN_FRAC  # expansão desejada (4%)
+
+    # Espaço real além de cada marcador (com 85% de segurança)
+    esp_esq = rect[0][0] * 0.85
+    esp_dir = (w_img - rect[1][0]) * 0.85
+    esp_top = rect[0][1] * 0.85
+    esp_bot = (h_img - rect[3][1]) * 0.85
+
+    dx_esq = min(larg * alvo, esp_esq)
+    dx_dir = min(larg * alvo, esp_dir)
+    dy_top = min(alt * alvo, esp_top)
+    dy_bot = min(alt * alvo, esp_bot)
+
+    rect = np.array(
+        [
+            [rect[0][0] - dx_esq, rect[0][1] - dy_top],  # TL
+            [rect[1][0] + dx_dir, rect[1][1] - dy_top],  # TR
+            [rect[2][0] + dx_dir, rect[2][1] + dy_bot],  # BR
+            [rect[3][0] - dx_esq, rect[3][1] + dy_bot],  # BL
+        ],
+        dtype="float32",
+    )
+
     w, h = settings.PAGE_WIDTH, settings.PAGE_HEIGHT
     dst = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype="float32")
     M = cv2.getPerspectiveTransform(rect, dst)

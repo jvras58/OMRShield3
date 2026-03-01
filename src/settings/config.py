@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     N_ALTERNATIVAS: int = 5  # A B C D E
     ALTERNATIVAS: ClassVar[list[str]] = list("ABCDE")
 
+    WARP_MARGIN_FRAC: float = 0.04  # 4% de folga além dos marcadores em cada lado
+
     # ── Warp / normalização de perspectiva ────────────────────────────────────
     # Dimensões fixas da imagem após warp — todos os parâmetros de pixel
     # abaixo são relativos a estas dimensões, tornando-os invariantes à

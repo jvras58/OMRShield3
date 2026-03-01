@@ -49,55 +49,77 @@ def _kmeans_1d(values: list[float], k: int) -> list[float]:
 
 def encontrar_separadores(gray: np.ndarray) -> list[int]:
     """
-    Detecta as posições X dos gaps brancos verticais que separam os blocos.
+    Detecta as posições X que separam os N_BLOCOS colunas de questões.
 
-    Recebe imagem grayscale já recortada (apenas zona de bolhas).
-    Retorna lista de N_BLOCOS+1 valores: [x_inicio_b1, ..., x_fim_bN].
+    Usa dois métodos em cascata:
+
+    1. Gaps explícitos: detecta colunas com < 5% da altura em pixels escuros.
+       Se encontrar exatamente N_BLOCOS-1 gaps internos com larguras uniformes
+       (coeficiente de variação < 15%), usa esses pontos diretamente.
+
+    2. Periodicidade + refinamento local: estima a largura esperada de cada
+       bloco (w / N_BLOCOS) e para cada borda esperada busca o mínimo de
+       pixels escuros numa janela de ±10% ao redor — isso encontra o centro
+       do gap mesmo quando o gap é estreito (< SEP_MIN_GAP_PX) ou quando
+       os blocos têm larguras levemente diferentes.
+
+    O método 2 é muito mais robusto que threshold fixo porque não depende
+    de um valor absoluto de pixels escuros — trabalha com a estrutura
+    periódica do cartão.
     """
     h, w = gray.shape
+    dark_per_col = (gray < settings.SEP_PIXEL_THR).sum(axis=0).astype(float)
+    smooth = np.convolve(dark_per_col, np.ones(5) / 5, mode="same")
 
-    dark_per_col = (gray < settings.SEP_PIXEL_THR).sum(axis=0)
+    # ── Método 1: gaps explícitos com threshold adaptativo ────────────────
+    gap_thr = h * 0.05  # < 5% da altura = gap
 
-    in_gap = False
-    gap_start = 0
+    in_gap, gap_start = False, 0
     gaps: list[tuple[int, int]] = []
-
     for x, dark in enumerate(dark_per_col):
-        if dark < settings.SEP_DARK_THR and not in_gap:
-            in_gap = True
-            gap_start = x
-        elif dark >= settings.SEP_DARK_THR and in_gap:
+        if dark < gap_thr and not in_gap:
+            in_gap, gap_start = True, x
+        elif dark >= gap_thr and in_gap:
             in_gap = False
-            if x - gap_start >= settings.SEP_MIN_GAP_PX:
+            if x - gap_start >= 4:
                 gaps.append((gap_start, x))
-
-    if in_gap and w - gap_start >= settings.SEP_MIN_GAP_PX:
+    if in_gap and w - gap_start >= 4:
         gaps.append((gap_start, w))
 
-    log.debug(f"[Sep] gaps brutos: {gaps}")
-
-    midpoints = [(s + e) // 2 for s, e in gaps]
+    # Só considera gaps internos (não nas bordas)
+    gaps_internos = [(s, e) for s, e in gaps if s > 10 and e < w - 10]
+    midpoints = [(s + e) // 2 for s, e in gaps_internos]
 
     if len(midpoints) == settings.N_BLOCOS - 1:
         seps = [0] + midpoints + [w]
-        log.info(f"[Sep] {settings.N_BLOCOS} blocos detectados: {seps}")
-        return seps
+        widths = [seps[i + 1] - seps[i] for i in range(settings.N_BLOCOS)]
+        cv = float(np.std(widths)) / float(np.mean(widths))
+        if cv < 0.15:
+            log.info(f"[Sep] Método gaps: {seps} (cv={cv:.3f})")
+            return seps
+        log.debug(
+            f"[Sep] Método gaps: larguras irregulares (cv={cv:.3f}), usando periodicidade"
+        )
+    else:
+        log.debug(
+            f"[Sep] Método gaps: {len(midpoints)} gaps (esperado {settings.N_BLOCOS - 1}), usando periodicidade"
+        )
 
-    if len(midpoints) > settings.N_BLOCOS - 1:
-        gaps_sorted = sorted(gaps, key=lambda g: g[1] - g[0], reverse=True)
-        best = sorted(gaps_sorted[: settings.N_BLOCOS - 1], key=lambda g: g[0])
-        midpoints = [(s + e) // 2 for s, e in best]
-        seps = [0] + midpoints + [w]
-        log.info(f"[Sep] filtrados para {settings.N_BLOCOS} blocos: {seps}")
-        return seps
+    # ── Método 2: periodicidade + refinamento local ───────────────────────
+    block_w = w / settings.N_BLOCOS
+    win = max(4, int(block_w * 0.10))  # janela de busca: ±10% da largura do bloco
 
-    log.warning(
-        f"[Sep] Esperado {settings.N_BLOCOS - 1} separadores, "
-        f"detectado {len(midpoints)}. Usando divisão uniforme."
-    )
-    block_w = w // settings.N_BLOCOS
-    seps = [i * block_w for i in range(settings.N_BLOCOS + 1)]
-    seps[-1] = w
+    seps = [0]
+    for i in range(1, settings.N_BLOCOS):
+        centro = int(round(i * block_w))
+        lo = max(1, centro - win)
+        hi = min(w - 1, centro + win)
+        local_min = lo + int(np.argmin(smooth[lo:hi]))
+        seps.append(local_min)
+    seps.append(w)
+
+    widths = [seps[i + 1] - seps[i] for i in range(settings.N_BLOCOS)]
+    log.info(f"[Sep] Método periodicidade: {seps} widths={widths}")
     return seps
 
 
@@ -164,26 +186,69 @@ def calibrar_colunas(bolhas: list[tuple[int, int, int]]) -> list[float]:
 # ── 4. Calibrar linhas ────────────────────────────────────────────────────────
 
 
-def calibrar_linhas(bolhas: list[tuple[int, int, int]]) -> tuple[float, float]:
+def calibrar_linhas(
+    bolhas: list[tuple[int, int, int]], h_recorte: int = 0
+) -> tuple[float, float]:
     """
-    Estima a posição Y da primeira questão (oy) e o espaçamento vertical (lg).
-    Retorna (oy, labelsGap).
+    Estima oy (Y da primeira questão) e lg (espaçamento entre linhas).
+
+    Estratégia em cascata:
+
+    1. KMeans com exatamente N_QUESTOES_POR_BLOCO clusters — ideal quando
+       o Hough detectou bolhas em todas (ou quase todas) as linhas.
+       Valida que o lg resultante é plausível (entre 50% e 150% do esperado).
+
+    2. KMeans com o máximo de clusters possível (< N_Q) — quando há bolhas
+       insuficientes mas ainda dá para estimar o espaçamento por interpolação.
+
+    3. Fallback uniforme — divide h_recorte em N_Q partes iguais.
+
+    CORREÇÃO em relação à versão anterior:
+      A versão anterior usava n_det = len(bolhas) // 3, o que resultava em
+      11 clusters para 34 bolhas (bloco 1) em vez de 15 — gerando lg errado
+      e grid deslocado. Agora sempre tenta N_Q clusters primeiro.
     """
-    if len(bolhas) < 3:
+    n_q = settings.N_QUESTOES_POR_BLOCO
+    lg_esperado = (h_recorte / (n_q + 1)) if h_recorte > 0 else 25.0
+    lg_min = lg_esperado * 0.5
+    lg_max = lg_esperado * 1.5
+
+    if len(bolhas) < 2:
         raise ValueError(f"Bolhas insuficientes para calibrar linhas: {len(bolhas)}")
 
-    ys = [float(cy) for cx, cy, r in bolhas]
-    n_det = max(3, min(len(bolhas) // 3, settings.N_QUESTOES_POR_BLOCO))
-    row_ctrs = _kmeans_1d(ys, n_det)
+    ys = [float(cy) for _, cy, _ in bolhas]
 
-    if len(row_ctrs) < 2:
-        raise ValueError("Linhas insuficientes para estimar labelsGap.")
+    def _kmeans_e_valida(n: int) -> tuple[float, float] | None:
+        ctrs = _kmeans_1d(ys, n)
+        if len(ctrs) < 2:
+            return None
+        diffs = [ctrs[i + 1] - ctrs[i] for i in range(len(ctrs) - 1)]
+        lg = float(np.median(diffs))
+        # Valida apenas se temos referência de h_recorte
+        if h_recorte > 0 and not (lg_min <= lg <= lg_max):
+            return None
+        return float(ctrs[0]), lg
 
-    diffs = [row_ctrs[i + 1] - row_ctrs[i] for i in range(len(row_ctrs) - 1)]
-    lg = float(np.median(diffs))
-    oy = float(row_ctrs[0])
+    # 1. Ideal: N_Q clusters
+    if len(bolhas) >= n_q:
+        result = _kmeans_e_valida(n_q)
+        if result:
+            log.debug(f"[Linhas] KMeans({n_q}): oy={result[0]:.0f} lg={result[1]:.1f}")
+            return result
 
-    log.debug(f"[Linhas] oy={round(oy)} lg={round(lg, 1)} ({n_det} linhas detectadas)")
+    # 2. Máximo possível de clusters
+    for n in range(min(len(bolhas), n_q - 1), 1, -1):
+        result = _kmeans_e_valida(n)
+        if result:
+            log.debug(
+                f"[Linhas] KMeans({n}) fallback: oy={result[0]:.0f} lg={result[1]:.1f}"
+            )
+            return result
+
+    # 3. Fallback uniforme
+    log.warning("[Linhas] Fallback uniforme")
+    lg = lg_esperado if lg_esperado > 0 else 25.0
+    oy = lg * 0.8
     return oy, lg
 
 
@@ -307,7 +372,7 @@ def detectar_todos(img: np.ndarray, dia: int = 1) -> dict[int, str]:
 
         try:
             col_centers = calibrar_colunas(bolhas)
-            oy, lg = calibrar_linhas(bolhas)
+            oy, lg = calibrar_linhas(bolhas, h_recorte=gray.shape[0])
         except ValueError as e:
             log.warning(f"[Bloco {bloco_idx + 1}] Calibração falhou: {e}")
             continue
